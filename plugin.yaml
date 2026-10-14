@@ -1,0 +1,40 @@
+name: hermes-live-artifacts
+version: "0.0.3"
+description: Interactive HTML artifacts (forms, review lists) with persisted input, served over your tailnet or loopback
+kind: standalone
+platforms:
+  - macos
+  - linux
+provides_tools:
+  - artifact_create
+  - artifact_update
+  - artifact_list
+  - artifact_read
+  - artifact_db_write
+  - artifact_archive
+  - artifact_delete
+  - artifact_export
+python_dependencies:
+  - "aiohttp>=3.9,<4"
+config_schema:
+  listen_host:
+    type: string
+    default: "127.0.0.1"
+    description: "Bind address. An IP, or the special value 'tailscale' to bind this node's tailnet IPv4 (retries until tailscaled is up)."
+  listen_port:
+    type: integer
+    default: 47318
+    description: Bind port.
+  listen_process:
+    type: string
+    default: gateway
+    description: "Which process hosts the listener: 'gateway' (the messaging gateway only), 'any' (first process to bind wins; use with plugins.isolation=host), 'none' (run your own listener on the same data dir)."
+  base_url:
+    type: string
+    default: ""
+    description: "Origin used in links returned to the agent, e.g. https://host.tailnet.ts.net:47318. Empty means http://<listen_host>:<listen_port>."
+  link_secret:
+    type: string
+    choices: [auto, always, never]
+    default: auto
+    description: "Whether links carry a secret (?k=...). 'auto' (default): 'always' unless both the bind address and base_url are loopback. 'never': the 128-bit random artifact id in the URL is the only gate; suitable for a trusted network such as a private tailnet. Older 12-character artifact ids always keep the secret. The words on/off are accepted as aliases but YAML reads them as booleans, so write always/never."

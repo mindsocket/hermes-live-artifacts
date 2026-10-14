@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+*.egg-info/
+build/
+dist/
+# Browser captures and saved responses hold account/org ids and session tokens: keep local, never commit.
+tmp/
