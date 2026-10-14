@@ -9,7 +9,7 @@ page A read page B's data. Two mechanisms replace a separate origin per artifact
      and no credentials, since a sandboxed page has origin `null`.
 Page access has two modes (`link_secret`). On: the link `/a/<id>?k=<token>` is exchanged for an HttpOnly cookie
 scoped to /a/<id>, then redirects to the clean URL; the cookie only authorises loading that one page, and rotating
-the token revokes link, cookie and API access. Off: the 128-bit random id in `/a/<id>` is the only gate (security
+the token revokes link, cookie and API access. Off: the random id (122 bits) in `/a/<id>` is the only gate (security
 by obscurity, for a trusted network); archive is then the way to revoke.
 """
 
@@ -101,6 +101,11 @@ PERMISSIONS_POLICY = (
 )
 
 
+def same_token(given: str, real: str) -> bool:
+    """Constant-time compare on bytes: compare_digest raises TypeError on a non-ASCII str, which would be a 500."""
+    return hmac.compare_digest((given or "").encode(), real.encode())
+
+
 @web.middleware
 async def cors_middleware(request: web.Request, handler):
     if not request.path.startswith("/api/"):
@@ -138,7 +143,7 @@ def make_app(
 
     def authed(token: str, aid: str, fail_status: int = 403) -> dict:
         a = live(aid)
-        if not hmac.compare_digest(token or "", a["token"]):
+        if not same_token(token, a["token"]):
             if fail_status == 404:
                 raise web.HTTPNotFound(text="not found")
             raise web.HTTPForbidden(text="forbidden")
@@ -242,7 +247,7 @@ def make_app(
                     await resp.write(b": ping\n\n")
                 await asyncio.sleep(1.0)
                 a = store.get_artifact(aid)  # stop streaming once revoked/archived
-                if a is None or a["status"] == "archived" or not hmac.compare_digest(k, a["token"]):
+                if a is None or a["status"] == "archived" or not same_token(k, a["token"]):
                     break
         except (ConnectionResetError, asyncio.CancelledError):
             pass

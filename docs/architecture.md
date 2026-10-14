@@ -67,7 +67,7 @@ The HTTP listener runs inside the **messaging gateway process** (`ai.hermes.gate
 Storage lives in `$HERMES_HOME/plugin-data/hermes-live-artifacts/artifacts.db` (or overridden by `HERMES_LIVE_ARTIFACTS_DATA`):
 
 1. **`artifacts` Table**:
-   - `id`: 22-character random URL-safe string (128 bits of entropy).
+   - `id`: 22-character URL-safe string from a random UUIDv4.
    - `title`, `html`, `capabilities` (JSON), `mcp_allowlist` (JSON).
    - `origin_session`: Captured from Hermes gateway session context (`current_session_key()`).
    - `wake`: Boolean flag indicating whether submit events should trigger an agent turn.
@@ -115,10 +115,11 @@ All artifacts are hosted under a single origin (the gateway listener's hostname)
    - Pages are served with a `Content-Security-Policy` `sandbox` directive listing those tokens.
    - This assigns each page an **opaque origin** (`origin: null`).
    - Pages cannot access `localStorage`, `sessionStorage`, `IndexedDB`, or cookies.
-   - Cross-artifact fetches are blocked by browser same-origin policy.
+   - A page cannot read another artifact's page: `/a/*` responses carry no CORS headers, and a sandboxed page has no credentials to send.
+   - The API is different: it answers `Access-Control-Allow-Origin: *` (the page's origin is `null`, so no narrower value is possible). The browser therefore does not stop a page calling another artifact's `/api/<id>/*`; the per-artifact token is the only barrier.
 2. **Capability Token Header (`x-artifact`)**:
    - Every API call to `/api/<id>/*` must include the header `x-artifact: <token>`.
-   - Because the origin is `null`, custom headers trigger a CORS preflight (`OPTIONS`), which the server validates.
+   - The custom header makes the browser send a CORS preflight (`OPTIONS`). The server answers every preflight with 204 and the CORS headers without checking anything; the token is checked on the real request that follows.
    - A compromised or hostile artifact cannot make requests to other artifacts' endpoints.
 3. **Link Access & Expiry**:
    - `link_secret: always`: Links carry `?k=<token>`. On first open, the token is exchanged for an `HttpOnly`, `SameSite=Lax` cookie scoped strictly to `/a/<id>`, and stripped from the URL.
@@ -141,4 +142,4 @@ All artifacts are hosted under a single origin (the gateway listener's hostname)
 
 ### C. Direct SQLite WAL vs. Separate Database Server
 - **Decision**: SQLite in WAL mode.
-- **Rationale**: Eliminates external database dependencies. Atomic backups are handled via Hermes's built-in backup CLI (`plugin-data/hermes-live-artifacts/artifacts.db`).
+- **Rationale**: Eliminates external database dependencies. Backups: `hermes backup` includes the data directory, so both `artifacts.db` and `.secret` are in the archive (see Backups in `SECURITY.md`).

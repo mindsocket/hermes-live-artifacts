@@ -52,11 +52,10 @@ These follow from the design (single user, self-hosted, one origin), not from mi
   `SecurityError`, whereas they work in Claude). Pages keep state in `db`, which autosave makes natural.
   Checked in Chrome only; other browsers are untested.
 - **Links and security.** Page access is configured with `link_secret`:
-  - `never`: the URL is `/a/<id>` with a 22-character random id (128 bits, like Claude's). Whoever has the URL can
-    open the page, so this suits a private network such as a tailnet. Revoke by archiving. **[tested]**
-    `test_link_secret_off_serves_clean_url_without_k_or_cookie`
+  - `never`: the URL is `/a/<id>` with a random id. Whoever has the URL can
+    open the page, so this suits a private network such as a tailnet. Revoke by archiving.
   - `always`: the link also carries a secret, `?k=<token>`, exchanged for a path-scoped cookie and removed from the
-    address bar. Rotating the token revokes it. **[tested]** `test_link_exchange_redirects_to_clean_url_with_path_scoped_cookie`
+    address bar. Rotating the token revokes it.
   - `auto` (default): `always` unless both the bind address and `base_url` are loopback.
   Artifacts created by early versions have 12-character ids and always keep the secret.
   Not provided: sign-in. The listener has no user authentication, unlike the Hermes dashboard (which requires a

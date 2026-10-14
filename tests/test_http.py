@@ -451,3 +451,18 @@ def test_legacy_short_id_keeps_the_secret_even_when_off(store):
         assert r.status == 302 and "Set-Cookie" in r.headers
 
     with_mode(store, go, False)
+
+
+def test_non_ascii_token_is_refused_like_any_wrong_token(store, art):
+    """hmac.compare_digest raises on a non-ASCII str; that must not become a 500 that tells live ids from dead ones."""
+
+    async def go(c):
+        assert (await c.get(f"/a/{art['id']}?k=%C3%A9", allow_redirects=False)).status == 404
+        assert (
+            await c.get(f"/a/{art['id']}", headers={"Cookie": f"ha_{art['id']}=é"}, allow_redirects=False)
+        ).status == 404
+        r = await c.post(f"/api/{art['id']}/db/get", json={"path": "a/b"}, headers={"x-artifact": "é"})
+        assert r.status == 403
+        assert (await c.get(f"/api/{art['id']}/events?k=%C3%A9")).status == 403
+
+    run(with_client(store, go))

@@ -225,3 +225,36 @@ def test_concurrent_writers_two_connections(s, aid):
     with ThreadPoolExecutor(8) as ex:
         list(ex.map(lambda i: s.set_doc(aid, f"c/d{i}", {"i": i}), range(40)))
     assert len(s.query(aid, "c")) == 40
+
+
+# ---------------------------------------------------------------- installation key (.secret)
+def test_key_is_created_once_private_and_reused(tmp_path):
+    k1 = Store(tmp_path)._key
+    assert len(k1) == 32 and (tmp_path / ".secret").stat().st_mode & 0o777 == 0o600
+    assert Store(tmp_path)._key == k1
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".secret.")] == []  # no temp file left
+
+
+@pytest.mark.parametrize("content", [b"", b"short"])
+def test_empty_or_short_key_file_is_refused_not_used(tmp_path, content):
+    (tmp_path / ".secret").write_bytes(content)
+    with pytest.raises(RuntimeError, match="at least 32"):
+        Store(tmp_path)
+    assert (tmp_path / ".secret").read_bytes() == content  # not overwritten: that would change every token
+
+
+def test_short_env_key_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMES_LIVE_ARTIFACTS_SECRET", "short")
+    with pytest.raises(RuntimeError, match="HERMES_LIVE_ARTIFACTS_SECRET"):
+        Store(tmp_path)
+    monkeypatch.setenv("HERMES_LIVE_ARTIFACTS_SECRET", "x" * 32)
+    assert Store(tmp_path)._key == b"x" * 32
+    assert not (tmp_path / ".secret").exists()
+
+
+def test_concurrent_first_starts_agree_on_one_key(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(8) as ex:
+        keys = list(ex.map(lambda _: Store(tmp_path)._key, range(8)))
+    assert len(set(keys)) == 1 and keys[0] == (tmp_path / ".secret").read_bytes()

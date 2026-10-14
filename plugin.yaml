@@ -37,4 +37,4 @@ config_schema:
     type: string
     choices: [auto, always, never]
     default: auto
-    description: "Whether links carry a secret (?k=...). 'auto' (default): 'always' unless both the bind address and base_url are loopback. 'never': the 128-bit random artifact id in the URL is the only gate; suitable for a trusted network such as a private tailnet. Older 12-character artifact ids always keep the secret. The words on/off are accepted as aliases but YAML reads them as booleans, so write always/never."
+    description: "Whether links carry a secret (?k=...). 'auto' (default): 'always' unless both the bind address and base_url are loopback. 'never': the random artifact id in the URL is the only gate; suitable for a trusted network such as a private tailnet."

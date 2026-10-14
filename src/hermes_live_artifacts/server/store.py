@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+MIN_KEY_BYTES = 32  # installation HMAC key length
 MAX_DOC_BYTES = 256 * 1024
 MAX_DEPTH = 32
 MAX_DOCS_PER_ARTIFACT = 25_000
@@ -134,7 +135,7 @@ MIN_UNGUESSABLE_ID = 22  # ids from new_artifact_id(); older 12-char ids are gue
 
 
 def new_artifact_id() -> str:
-    """22 URL-safe chars from a random UUID (128 bits)."""
+    """22 URL-safe chars from a random UUIDv4 (122 random bits)."""
     return base64.urlsafe_b64encode(uuid.uuid4().bytes).rstrip(b"=").decode()
 
 
@@ -226,23 +227,41 @@ class Store:
             c.close()
 
     def _get_installation_key(self) -> bytes:
+        """The HMAC key tokens are derived from: `HERMES_LIVE_ARTIFACTS_SECRET`, else `<data dir>/.secret`.
+
+        Plugins load in every Hermes process, so two can start at once. The key is written to a private temp
+        file in full, then hard-linked into place: `link` fails if `.secret` exists, so exactly one writer wins,
+        and a reader never sees a partial file. Any short key or I/O error raises; a silent fallback would
+        either change every token on restart or derive them from an empty key."""
         env_secret = os.environ.get("HERMES_LIVE_ARTIFACTS_SECRET")
         if env_secret:
-            return env_secret.encode()
+            return self._check_key(env_secret.encode(), "HERMES_LIVE_ARTIFACTS_SECRET")
         key_file = self.dir / ".secret"
-        if key_file.exists():
+        if not key_file.exists():
+            tmp = self.dir / f".secret.{os.getpid()}.{secrets.token_hex(4)}.tmp"
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             try:
-                return key_file.read_bytes()
-            except Exception:
-                pass
-        secret = secrets.token_bytes(32)
-        try:
-            fd = os.open(key_file, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with open(fd, "wb") as f:
-                f.write(secret)
-        except Exception:
-            pass
-        return secret
+                with os.fdopen(fd, "wb") as f:
+                    f.write(secrets.token_bytes(MIN_KEY_BYTES))
+                    f.flush()
+                    os.fsync(f.fileno())
+                try:
+                    os.link(tmp, key_file)
+                except FileExistsError:
+                    pass  # another process won the race; read its key below
+            finally:
+                tmp.unlink(missing_ok=True)
+        return self._check_key(key_file.read_bytes(), str(key_file))
+
+    @staticmethod
+    def _check_key(key: bytes, where: str) -> bytes:
+        if len(key) < MIN_KEY_BYTES:
+            raise RuntimeError(
+                f"{where} holds {len(key)} bytes; the installation key needs at least {MIN_KEY_BYTES}. "
+                "If it is a damaged .secret, delete it to mint a new key (every existing link and page token "
+                "then changes)."
+            )
+        return key
 
     def derive_token(self, aid: str, seed: str) -> str:
         h = hmac.new(self._key, f"{aid}:{seed}".encode(), "sha256").digest()
