@@ -209,8 +209,29 @@
   // schemes with a visible notice, and ask the shell (a document we own) to open a real tab. A page
   // that bypasses this still only has the already-documented self-navigation path (security.md gap 6).
   const OPENABLE = /^https?:\/\//i;
-  function warnRefused(url) {
-    console.warn("[artifact] refused non-http(s) URL:", url);
+  // Non-http(s) schemes (obsidian:, mailto:, …) are refused on first sight with an override banner;
+  // an explicit "Open anyway" remembers scheme+host for the page's lifetime.
+  const allowedSchemes = new Set();
+  function openLink(url, force) {
+    if (typeof url !== "string" || !url) return false;
+    if (OPENABLE.test(url)) {
+      parent.postMessage({ type: "open-link", url }, "/");
+      return true;
+    }
+    let key;
+    try {
+      const u = new URL(url);
+      key = `${(u.scheme || "").toLowerCase()}:${(u.hostname || "").toLowerCase()}`;
+    } catch (_) { return false; }
+    if (force || allowedSchemes.has(key)) {
+      parent.postMessage({ type: "open-link", url, confirmed: true }, "/");
+      return true;
+    }
+    warnRefused(url, key);
+    return false;
+  }
+  function warnRefused(url, key) {
+    console.warn("[artifact] non-http(s) URL needs confirmation:", url);
     let note = document.getElementById("__claude_link_notice");
     if (!note) {
       note = document.createElement("div");
@@ -221,19 +242,26 @@
           "font:13px/1.4 -apple-system,sans-serif;padding:10px 14px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.3)"
       );
       document.body.appendChild(note);
-      setTimeout(() => note.remove(), 6000);
     }
-    note.textContent = "Blocked: only http(s) links can be opened";
-  }
-  function openLink(url) {
-    if (typeof url !== "string" || !OPENABLE.test(url)) { warnRefused(url); return false; }
-    parent.postMessage({ type: "open-link", url }, "/");
-    return true;
+    note.textContent = "";
+    const text = document.createElement("span");
+    text.textContent = `This page wants to open a non-web link: ${url}`;
+    const btn = document.createElement("button");
+    btn.textContent = "Open anyway";
+    btn.setAttribute("style", "margin-left:10px;font:inherit;background:#fff;color:#b3261e;border:0;border-radius:6px;padding:4px 10px;cursor:pointer");
+    btn.onclick = () => {
+      allowedSchemes.add(key);
+      openLink(url, true);
+      note.remove();
+    };
+    note.append(text, btn);
   }
   document.addEventListener(
     "click",
     (e) => {
-      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      // Modifier clicks too: the sandboxed frame has no popup flags, so the browser could not honour
+      // cmd/ctrl/middle-click auxiliary opening anyway — route it through the shell like a plain click.
+      if (e.defaultPrevented) return;
       const a = e.target.closest && e.target.closest("a[href]");
       if (!a) return;
       const href = a.getAttribute("href");
@@ -241,6 +269,24 @@
       let url;
       try { url = new URL(href, location.href).href; } catch (_) { return; }
       if (url.startsWith(location.origin + "/")) return; // same-origin: let the browser handle it
+      e.preventDefault();
+      e.stopPropagation();
+      openLink(url);
+    },
+    true
+  );
+  document.addEventListener(
+    "auxclick",
+    (e) => {
+      // middle-click: same interception as plain click (the browser can't open the tab itself)
+      if (e.defaultPrevented || e.button !== 1) return;
+      const a = e.target.closest && e.target.closest("a[href]");
+      if (!a) return;
+      const href = a.getAttribute("href");
+      if (!href || href.startsWith("#") || a.hasAttribute("download")) return;
+      let url;
+      try { url = new URL(href, location.href).href; } catch (_) { return; }
+      if (url.startsWith(location.origin + "/")) return;
       e.preventDefault();
       e.stopPropagation();
       openLink(url);

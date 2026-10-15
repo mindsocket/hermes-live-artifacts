@@ -1,7 +1,9 @@
 /* Shell-side half of external link opening. The artifact frame (opaque origin, no popup flags) cannot
  * open tabs itself; its shim postMessages the wanted URL here, and the shell — a document we own with a
- * full-origin capability — window.open()s it in a real tab after a scheme check. Only http(s) passes;
- * anything else is ignored (the shim already showed a warning in the page). */
+ * full-origin capability — window.open()s it in a real tab. http(s) passes freely (the shim shows them
+ * as ordinary links); any other scheme passes only when the shim marked it user-confirmed via the
+ * banner. Unknown schemes the browser itself cannot launch (obsidian:, mailto: and friends are user
+ * agent dependent) simply do nothing when handed to window.open — the attempt is harmless. */
 (() => {
   const OPENABLE = /^https?:\/\//i;
   window.addEventListener("message", (e) => {
@@ -10,6 +12,7 @@
     const d = e.data || {};
     if (d.type !== "open-link") return;
     const url = String(d.url || "");
-    if (OPENABLE.test(url)) window.open(url, "_blank", "noopener");
+    if (!url) return;
+    if (OPENABLE.test(url) || d.confirmed === true) window.open(url, "_blank", "noopener");
   });
 })();
