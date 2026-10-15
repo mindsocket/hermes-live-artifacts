@@ -21,23 +21,21 @@ def free_port() -> int:
 
 # ---------------------------------------------------------------- settings
 def test_settings_defaults():
-    cfg = plug.read_settings(lambda k, d: d, env={})
+    cfg = plug.read_settings(lambda k, d: d)
     assert cfg["listen_host"] == "127.0.0.1" and cfg["listen_port"] == 47318
     assert cfg["listen_process"] == "gateway"
     assert cfg["base_url"] == "http://127.0.0.1:47318"
 
 
-def test_settings_plugin_config_and_env_precedence():
+def test_settings_from_plugin_config():
     conf = {"listen_host": "tailscale", "listen_port": "50000", "notify_target": "discord:#ops"}
-    cfg = plug.read_settings(lambda k, d: conf.get(k, d), env={})
+    cfg = plug.read_settings(lambda k, d: conf.get(k, d))
     assert cfg["listen_port"] == 50000 and cfg["base_url"] == "http://TAILSCALE_IP:50000"
-    cfg = plug.read_settings(lambda k, d: conf.get(k, d), env={"HERMES_LIVE_ARTIFACTS_LISTEN_PORT": "1234"})
-    assert cfg["listen_port"] == 1234
 
 
 def test_settings_explicit_base_url():
     conf = {"base_url": "https://h.ts.net:47318"}
-    cfg = plug.read_settings(lambda k, d: conf.get(k, d), env={})
+    cfg = plug.read_settings(lambda k, d: conf.get(k, d))
     assert cfg["base_url"] == "https://h.ts.net:47318"
 
 
@@ -173,7 +171,9 @@ def test_large_payload_does_not_reach_the_push(store):
 
 
 def test_register_wires_inject_message(monkeypatch, tmp_path):
-    monkeypatch.setenv("HERMES_LIVE_ARTIFACTS_DATA", str(tmp_path))
+    from hermes_live_artifacts.server.store import Store as _Store
+
+    monkeypatch.setattr(plug, "store", lambda: _Store(tmp_path))
     seen = {}
     real = plug.make_waker
     monkeypatch.setattr(
@@ -267,14 +267,18 @@ class FakeCtx:
 
 
 def test_register_tools_only_when_not_listening(monkeypatch, tmp_path):
-    monkeypatch.setenv("HERMES_LIVE_ARTIFACTS_DATA", str(tmp_path))
+    from hermes_live_artifacts.server.store import Store as _Store
+
+    monkeypatch.setattr(plug, "store", lambda: _Store(tmp_path))
     ctx = FakeCtx({"listen_process": "none"})
     plug.register(ctx)
     assert len(ctx.tools) == 9 and "capabilities" in ctx.skills and ctx.spawned == []
 
 
 def test_register_all_skills_with_description(monkeypatch, tmp_path):
-    monkeypatch.setenv("HERMES_LIVE_ARTIFACTS_DATA", str(tmp_path))
+    from hermes_live_artifacts.server.store import Store as _Store
+
+    monkeypatch.setattr(plug, "store", lambda: _Store(tmp_path))
     ctx = FakeCtx({"listen_process": "none"})
     plug.register(ctx)
     assert sorted(ctx.skills) == ["capabilities", "design"]
@@ -284,7 +288,9 @@ def test_register_all_skills_with_description(monkeypatch, tmp_path):
 
 
 def test_register_listens_in_gateway_on_running_loop(monkeypatch, tmp_path):
-    monkeypatch.setenv("HERMES_LIVE_ARTIFACTS_DATA", str(tmp_path))
+    from hermes_live_artifacts.server.store import Store as _Store
+
+    monkeypatch.setattr(plug, "store", lambda: _Store(tmp_path))
     ctx = FakeCtx({})
 
     async def go():
@@ -295,7 +301,9 @@ def test_register_listens_in_gateway_on_running_loop(monkeypatch, tmp_path):
 
 
 def test_register_none_never_listens(monkeypatch, tmp_path):
-    monkeypatch.setenv("HERMES_LIVE_ARTIFACTS_DATA", str(tmp_path))
+    from hermes_live_artifacts.server.store import Store as _Store
+
+    monkeypatch.setattr(plug, "store", lambda: _Store(tmp_path))
     ctx = FakeCtx({"listen_process": "none"})
     plug.register(ctx)
     assert ctx.spawned == []
@@ -372,17 +380,15 @@ def test_artifact_create_rejects_a_bad_mcp_manifest_and_accepts_a_good_one(tools
     ],
 )
 def test_link_secret_resolution(value, host, base, expected):
-    cfg = plug.read_settings(
-        lambda k, d: {"link_secret": value, "listen_host": host, "base_url": base}.get(k, d), env={}
-    )
+    cfg = plug.read_settings(lambda k, d: {"link_secret": value, "listen_host": host, "base_url": base}.get(k, d))
     assert cfg["link_secret"] is expected
 
 
 def test_invalid_settings_raise():
     with pytest.raises(ValueError, match="link_secret"):
-        plug.read_settings(lambda k, d: {"link_secret": "bogus"}.get(k, d), env={})
+        plug.read_settings(lambda k, d: {"link_secret": "bogus"}.get(k, d))
     with pytest.raises(ValueError, match="listen_process"):
-        plug.read_settings(lambda k, d: {"listen_process": "bogus"}.get(k, d), env={})
+        plug.read_settings(lambda k, d: {"listen_process": "bogus"}.get(k, d))
 
 
 def test_rotate_link_revokes_and_returns_new_link(tools_store):

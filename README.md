@@ -51,7 +51,7 @@ Pip route (declared, not yet exercised): `pip install .` registers the `hermes_a
 
 ## Configuration
 
-Set under the plugin's config (see `plugin.yaml` `config_schema`), or env `HERMES_LIVE_ARTIFACTS_<KEY>`:
+Set under the plugin's config (see `plugin.yaml` `config_schema`):
 
     listen_host      127.0.0.1, an IP, or "tailscale" (bind this node's tailnet IPv4)
     listen_port      47318
@@ -59,16 +59,17 @@ Set under the plugin's config (see `plugin.yaml` `config_schema`), or env `HERME
     base_url         origin used in returned links; empty means http://<listen_host>:<listen_port>
     link_secret      auto (default) | always | never; see Security
 
-MCP from pages is off until the operator lists servers under `plugins.entries.hermes-live-artifacts.mcp_allowlist`.
+MCP from pages is off until the operator lists servers in Hermes config under
+`plugins.entries.hermes-live-artifacts.mcp_allowlist` (not a plugin config key).
 
-Data lives in `$HERMES_HOME/plugin-data/hermes-live-artifacts/` (override with `HERMES_LIVE_ARTIFACTS_DATA`). `hermes backup` includes it, together with the
-`.secret` key file; treat that archive as a secret store (see `docs/security.md`).
+Data lives in `$HERMES_HOME/plugin-data/hermes-live-artifacts/`; backups and the `.secret` key file are covered in
+`docs/security.md`.
 
 ## Security
 
 There is no sign-in. Access is by possession of the link, so treat the listener as private-network only.
 
-- `link_secret: never`: the link is `/a/<22-char random id>`, protected by obscurity (122 random bits). Reasonable on a private
+- `link_secret: never`: the link is `/a/<22-char random id>`, protected by obscurity alone. Reasonable on a private
   tailnet you control. Anyone who sees the URL (pasted chat, browser history, screen share) can open that artifact.
 - `link_secret: always`: adds `?k=<secret>`, stripped from the address bar after the first open. Same sharing risk, but
   the id alone is not enough. Either way, archiving the artifact revokes its link.

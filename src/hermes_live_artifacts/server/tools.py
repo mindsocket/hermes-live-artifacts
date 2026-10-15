@@ -31,7 +31,7 @@ def configure(base_url: str, link_secret: bool = True) -> None:
 
 
 def base_url() -> str:
-    return os.environ.get("HERMES_LIVE_ARTIFACTS_BASE_URL", _base_url).rstrip("/")
+    return _base_url.rstrip("/")
 
 
 def link(a: dict) -> str:
@@ -158,8 +158,10 @@ def artifact_rotate_link(args: dict, **_kw) -> str:
     the page link — refuse rather than imply a revocation that did not happen."""
     aid = args.get("id")
     if not _link_secret:
-        return _err("link rotation is meaningless with link_secret=never: the id in the URL is the "
-                    "capability and rotating the token does not revoke the link. Use artifact_archive to revoke.")
+        return _err(
+            "link rotation is meaningless with link_secret=never: the id in the URL is the "
+            "capability and rotating the token does not revoke the link. Use artifact_archive to revoke."
+        )
     try:
         store().rotate_token(aid)
     except KeyError:

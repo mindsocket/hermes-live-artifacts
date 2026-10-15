@@ -222,8 +222,11 @@ def test_non_object_body_is_400_and_oversize_is_413(store, art):
         for raw in ("[1,2]", '"x"', "3", "null"):
             r = await c.post(url, data=raw, headers={**hdr(art), "content-type": "application/json"})
             assert r.status == 400, (raw, r.status)
-        r = await c.post(url, data='{"path":"a/b","data":{"x":"' + "y" * 400000 + '"}}',
-                         headers={**hdr(art), "content-type": "application/json"})
+        r = await c.post(
+            url,
+            data='{"path":"a/b","data":{"x":"' + "y" * 400000 + '"}}',
+            headers={**hdr(art), "content-type": "application/json"},
+        )
         assert r.status == 413
 
     run(with_client(store, go))

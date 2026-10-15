@@ -75,9 +75,6 @@ def hermes_home() -> Path:
 
 
 def default_data_dir() -> Path:
-    override = os.environ.get("HERMES_LIVE_ARTIFACTS_DATA")
-    if override:
-        return Path(override)
     return hermes_home() / "plugin-data" / "hermes-live-artifacts"
 
 
@@ -146,7 +143,7 @@ def needs_link_secret(aid: str, link_secret: bool) -> bool:
 
 
 def new_artifact_id() -> str:
-    """22 URL-safe chars from a random UUIDv4 (122 random bits)."""
+    """22 URL-safe chars from a random UUIDv4."""
     return _b64(uuid.uuid4().bytes)
 
 
@@ -260,15 +257,12 @@ class Store:
             c.close()
 
     def _get_installation_key(self) -> bytes:
-        """The HMAC key tokens are derived from: `HERMES_LIVE_ARTIFACTS_SECRET`, else `<data dir>/.secret`.
+        """The HMAC key tokens are derived from: `<data dir>/.secret`.
 
         Plugins load in every Hermes process, so two can start at once. The key is written to a private temp
         file in full, then hard-linked into place: `link` fails if `.secret` exists, so exactly one writer wins,
         and a reader never sees a partial file. Any short key or I/O error raises; a silent fallback would
         either change every token on restart or derive them from an empty key."""
-        env_secret = os.environ.get("HERMES_LIVE_ARTIFACTS_SECRET")
-        if env_secret:
-            return self._check_key(env_secret.encode(), "HERMES_LIVE_ARTIFACTS_SECRET")
         key_file = self.dir / ".secret"
         if not key_file.exists():
             tmp = self.dir / f".secret.{os.getpid()}.{secrets.token_hex(4)}.tmp"
@@ -514,9 +508,9 @@ class Store:
             n = c.execute("SELECT COUNT(*) FROM docs WHERE artifact_id=?", (aid,)).fetchone()[0]
             if n >= MAX_DOCS_PER_ARTIFACT:
                 raise DbError("quota_exceeded", "artifact database holds the maximum of 25,000 documents")
-            total = c.execute(
-                "SELECT COALESCE(SUM(LENGTH(data)),0) FROM docs WHERE artifact_id=?", (aid,)
-            ).fetchone()[0]
+            total = c.execute("SELECT COALESCE(SUM(LENGTH(data)),0) FROM docs WHERE artifact_id=?", (aid,)).fetchone()[
+                0
+            ]
             if total + len(body.encode()) > MAX_TOTAL_DOC_BYTES:
                 raise DbError("quota_exceeded", "artifact database exceeds its 50 MiB document quota")
             c.execute(

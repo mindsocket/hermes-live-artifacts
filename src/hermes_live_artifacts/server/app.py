@@ -6,7 +6,8 @@ page A read page B's data. Three mechanisms replace a separate origin per artifa
      `/a/<id>/frame`, the artifact itself. The shell's `frame-ancestors` says who may embed the shell, and its
      `frame-src 'self'` keeps the inner frame pointed at us. The artifact document is served with a CSP
      `sandbox` that omits `allow-same-origin` (opaque origin: it cannot read cookies, localStorage or
-     IndexedDB) and omits both popup flags, so it cannot navigate the top level or open an escaping popup —
+     IndexedDB) and omits both popup flags, so it cannot navigate the top level or open an escaping popup
+     (it can navigate its own frame; see docs/security.md known gap 6) —
      navigation is the one exfiltration path `connect-src 'self'` does not cover.
   2. The API is capability-based: each request carries the artifact's own token in the `x-artifact` header (which
      forces a CORS preflight), and a page only ever contains its own token. The API answers CORS with `*`
@@ -15,7 +16,7 @@ page A read page B's data. Three mechanisms replace a separate origin per artifa
      (the Hermes dashboard lives on the same tailnet host, unknown port), and loopback dev origins.
 Page access has two modes (`link_secret`). On: the link `/a/<id>?k=<token>` is exchanged for an HttpOnly cookie
 scoped to /a/<id>, then redirects to the clean URL; the cookie only authorises loading that one page, and rotating
-the token revokes link, cookie and API access. Off: the random id (122 bits) in `/a/<id>` is the only gate (security
+the token revokes link, cookie and API access. Off: the unguessable random id in `/a/<id>` is the only gate (security
 by obscurity, for a trusted network); archive is then the way to revoke.
 """
 
@@ -104,9 +105,7 @@ CSP = (
 ARTIFACT_SANDBOX = "sandbox allow-scripts allow-forms allow-downloads allow-modals"
 # The shell is a top-level document we own: it frames only 'self' (the artifact iframe) and may itself be
 # framed by the origins derived from base_url (see frame_ancestors_from).
-SHELL_CSP = (
-    "default-src 'self'; style-src 'unsafe-inline'; frame-src 'self'; object-src 'none'; base-uri 'self'"
-)
+SHELL_CSP = "default-src 'self'; style-src 'unsafe-inline'; frame-src 'self'; object-src 'none'; base-uri 'self'"
 
 
 def frame_ancestors_from(base_url: str) -> str:
@@ -132,6 +131,8 @@ def render_shell(a: dict, ancestors: str) -> str:
         ' sandbox="allow-scripts allow-forms allow-downloads allow-modals"></iframe>'
         f"</body></html><!-- {aid} {ancestors} -->"
     )
+
+
 # The sandboxed page has origin `null`; no credentials are ever sent, so `*` is safe: the token header is the auth.
 CORS = {
     "Access-Control-Allow-Origin": "*",

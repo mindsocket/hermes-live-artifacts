@@ -255,15 +255,6 @@ def test_empty_or_short_key_file_is_refused_not_used(tmp_path, content):
     assert (tmp_path / ".secret").read_bytes() == content  # not overwritten: that would change every token
 
 
-def test_short_env_key_is_refused(tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_LIVE_ARTIFACTS_SECRET", "short")
-    with pytest.raises(RuntimeError, match="HERMES_LIVE_ARTIFACTS_SECRET"):
-        Store(tmp_path)
-    monkeypatch.setenv("HERMES_LIVE_ARTIFACTS_SECRET", "x" * 32)
-    assert Store(tmp_path)._key == b"x" * 32
-    assert not (tmp_path / ".secret").exists()
-
-
 def test_concurrent_first_starts_agree_on_one_key(tmp_path):
     from concurrent.futures import ThreadPoolExecutor
 

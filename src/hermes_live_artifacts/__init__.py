@@ -60,14 +60,11 @@ _thread: threading.Thread | None = None
 
 
 # ---------------------------------------------------------------- settings
-def read_settings(get_config: Callable[[str, Any], Any], env: dict | None = None) -> dict:
-    """Precedence: env (HERMES_LIVE_ARTIFACTS_<KEY>, for tests/dev) > plugin settings > defaults."""
-    env = os.environ if env is None else env
+def read_settings(get_config: Callable[[str, Any], Any]) -> dict:
+    """Resolve plugin settings against defaults."""
     out: dict[str, Any] = {}
     for key, default in DEFAULTS.items():
-        val = env.get(f"HERMES_LIVE_ARTIFACTS_{key.upper()}")
-        if val is None:
-            val = get_config(key, default)
+        val = get_config(key, default)
         out[key] = int(val) if key == "listen_port" else (val if val is not None else default)
     if out["listen_process"] not in ("gateway", "any", "none"):
         raise ValueError(f"listen_process={out['listen_process']!r} is invalid; use gateway, any or none")

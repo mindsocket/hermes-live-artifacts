@@ -52,7 +52,7 @@ The HTTP listener runs inside the **messaging gateway process** (`ai.hermes.gate
 
 ### Configuration
 
-Keys, defaults and the `HERMES_LIVE_ARTIFACTS_<KEY>` environment overrides are listed in the README
+Keys and defaults are listed in the README
 (Configuration) and declared in `plugin.yaml`. An invalid `link_secret` or `listen_process` fails plugin load.
 
 ---
@@ -61,7 +61,7 @@ Keys, defaults and the `HERMES_LIVE_ARTIFACTS_<KEY>` environment overrides are l
 
 ### Schema
 
-Storage lives in `$HERMES_HOME/plugin-data/hermes-live-artifacts/artifacts.db` (or overridden by `HERMES_LIVE_ARTIFACTS_DATA`):
+Storage lives in `$HERMES_HOME/plugin-data/hermes-live-artifacts/artifacts.db`:
 
 1. **`artifacts` Table**:
    - `id`: 22-character URL-safe string from a random UUIDv4.
