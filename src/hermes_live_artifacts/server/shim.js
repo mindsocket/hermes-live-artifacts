@@ -203,6 +203,52 @@
     listTools: removed, describeTool: removed, invalidate: removed, watchTool: () => { throw err("capability_removed", "watchTool is not implemented in hermes-live-artifacts"); },
   });
 
+  // ------------------------------------------------------- external link opening
+  // The frame's sandbox has no popup flags and self-navigation destroys the page, so plain <a> links
+  // and window.open cannot work unassisted. We intercept both in capture phase, refuse non-http(s)
+  // schemes with a visible notice, and ask the shell (a document we own) to open a real tab. A page
+  // that bypasses this still only has the already-documented self-navigation path (security.md gap 6).
+  const OPENABLE = /^https?:\/\//i;
+  function warnRefused(url) {
+    console.warn("[artifact] refused non-http(s) URL:", url);
+    let note = document.getElementById("__claude_link_notice");
+    if (!note) {
+      note = document.createElement("div");
+      note.id = "__claude_link_notice";
+      note.setAttribute(
+        "style",
+        "position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483647;background:#b3261e;color:#fff;" +
+          "font:13px/1.4 -apple-system,sans-serif;padding:10px 14px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.3)"
+      );
+      document.body.appendChild(note);
+      setTimeout(() => note.remove(), 6000);
+    }
+    note.textContent = "Blocked: only http(s) links can be opened";
+  }
+  function openLink(url) {
+    if (typeof url !== "string" || !OPENABLE.test(url)) { warnRefused(url); return false; }
+    parent.postMessage({ type: "open-link", url }, "/");
+    return true;
+  }
+  document.addEventListener(
+    "click",
+    (e) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      const a = e.target.closest && e.target.closest("a[href]");
+      if (!a) return;
+      const href = a.getAttribute("href");
+      if (!href || href.startsWith("#") || a.hasAttribute("download")) return;
+      let url;
+      try { url = new URL(href, location.href).href; } catch (_) { return; }
+      if (url.startsWith(location.origin + "/")) return; // same-origin: let the browser handle it
+      e.preventDefault();
+      e.stopPropagation();
+      openLink(url);
+    },
+    true
+  );
+  window.open = (url) => (url === undefined || url === "" ? null : openLink(String(url)));
+
   const ns = { db, user, downloads, permissions, mcp, artifact: stub, self: stub };
   const cache = new Map();
   // submit helper (open item 3): sugar over the reserved doc meta/status; either spelling works.

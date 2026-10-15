@@ -74,6 +74,28 @@ def test_shell_frame_ancestors_derived_from_base_url(store, art):
     run(with_client(store, go, link_secret=False, base_url="https://node.tail1234.ts.net"))
 
 
+def test_shell_serves_openlink_script_and_page_intercepts_links(store, art):
+    """External links work by shim interception: the shell loads /shell.js (opener), the frame's shim
+    hooks clicks and window.open, and neither widens the frame's sandbox."""
+
+    async def go(c):
+        shell = await (await c.get(f"/a/{art['id']}")).text()
+        assert '<script src="/shell.js"></script>' in shell
+
+        r = await c.get("/shell.js")
+        assert r.status == 200
+        assert "text/javascript" in r.headers["Content-Type"]
+        assert "open-link" in await r.text()
+
+        frame = await (await c.get(f"/a/{art['id']}/frame")).text()
+        assert "open-link" in frame and '"click"' in frame and "preventDefault" in frame
+
+        # the shell CSP still frames only 'self' and still allows no popups in the frame sandbox
+        assert "allow-popups" not in shell
+
+    run(with_client(store, go, link_secret=False))
+
+
 def test_cross_origin_post_without_the_token_header_is_rejected(store, art):
     async def go(c):
         r = await c.post(
