@@ -62,7 +62,7 @@ Set under the plugin's config (see `plugin.yaml` `config_schema`), or env `HERME
 MCP from pages is off until the operator lists servers under `plugins.entries.hermes-live-artifacts.mcp_allowlist`.
 
 Data lives in `$HERMES_HOME/plugin-data/hermes-live-artifacts/` (override with `HERMES_LIVE_ARTIFACTS_DATA`). `hermes backup` includes it, together with the
-`.secret` key file; treat that archive as a secret store (see `docs/SECURITY.md`).
+`.secret` key file; treat that archive as a secret store (see `docs/security.md`).
 
 ## Security
 
@@ -76,7 +76,7 @@ There is no sign-in. Access is by possession of the link, so treat the listener 
   URLs on a tailnet.
 - Pages run in a sandbox with no cookies or browser storage, and each carries only its own artifact's API token.
   The browser does not stop a page calling another artifact's API, so the token is the only barrier; see
-  [docs/SECURITY.md](docs/SECURITY.md).
+  [docs/security.md](docs/security.md).
 - A page may call MCP tools only if it declares them and the operator has allowed that server. Declared tools run with
   your authority.
 - Do not expose the port to the public internet. Tailscale Funnel is out of scope.
@@ -92,6 +92,6 @@ There is no sign-in. Access is by possession of the link, so treat the listener 
 ## More
 
 - [docs/architecture.md](docs/architecture.md): components, data model, hosting and isolation design.
-- [docs/SECURITY.md](docs/SECURITY.md): threat model and known gaps.
+- [docs/security.md](docs/security.md): threat model and known gaps.
 - [docs/compatibility.md](docs/compatibility.md): how the page API differs from Claude's.
 - [AGENTS.md](AGENTS.md): repository layout, conventions and pitfalls for contributors.

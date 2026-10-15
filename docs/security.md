@@ -11,7 +11,7 @@ This document outlines the security architecture, threat model, trust boundaries
 ### Assets to Protect
 1. **Host & Agent Gateway**: Access to operator system shell, Hermes internal sessions, and unrestricted MCP tool execution.
 2. **Artifact Persistence & Documents**: Data written by artifacts into SQLite (`artifacts.db`), including form submissions and sensitive state.
-3. **Session Integrity**: In-flight chat sessions where submitted artifact data is delivered.
+3. **Session Integrity**: In-flight chat sessions where submit notifications are delivered.
 4. **Capability Tokens**: Bearer tokens granting read and write capabilities to artifact APIs.
 5. **Private Tailnet / Network Perimeter**: Protection against unauthenticated access and enumeration from outside the intended network scope.
 
@@ -21,23 +21,24 @@ This document outlines the security architecture, threat model, trust boundaries
 
 | Threat | Risk Level | Mitigation Control | Verification Evidence |
 | :--- | :--- | :--- | :--- |
-| **Cross-Artifact Contamination / Data Theft** | Critical | **Opaque Origin Sandbox & Capability Tokens**: Pages served with a CSP `sandbox` that omits `allow-same-origin` (opaque origin `null`). Custom `x-artifact` header required on all `/api/<id>/*` operations; credentials never accepted. | `test_one_artifacts_token_cannot_reach_another`<br>`test_cross_origin_post_without_the_token_header_is_rejected` |
+| **Cross-Artifact Contamination / Data Theft** | Critical | **Opaque Origin Sandbox & Capability Tokens**: Pages are framed by a server-owned shell and served with a CSP `sandbox` that omits `allow-same-origin` (opaque origin `null`). Custom `x-artifact` header required on all `/api/<id>/*` operations; credentials never accepted. | `test_one_artifacts_token_cannot_reach_another`<br>`test_cross_origin_post_without_the_token_header_is_rejected` |
 | **Plaintext Bearer Token Leakage at Rest** | Medium | **HMAC derivation**: the API token is `HMAC-SHA256(installation key, id:salt)`. SQLite stores only a random salt, so a copy of `artifacts.db` alone does not contain working tokens. The installation key is `.secret` (0600, at least 32 bytes, created atomically, refused if short) or `HERMES_LIVE_ARTIFACTS_SECRET`. Limits: the backup includes `.secret` by design (see Backups), and in `never` mode the artifact id in the database opens the page, which embeds the token. | `test_only_a_salt_is_stored_not_the_token`<br>`test_key_is_created_once_private_and_reused`<br>`test_empty_or_short_key_file_is_refused_not_used`<br>`test_concurrent_first_starts_agree_on_one_key` |
 | **Artifact ID Enumeration** | Low | **Unguessable ids** (22 characters, 122 random bits) and, for page loads, a uniform 404 for unknown, archived and (in `always` mode) unauthenticated requests. In `never` mode a live id with no `?k=` is served by design: the id is the credential. `/api/*` and `/events` answer 404 for an unknown or archived id and 403 for a wrong token, so they do distinguish a live id; at 122 bits that is not exploitable. | `test_unknown_artifact_404`<br>`test_bare_url_without_cookie_is_forbidden_and_wrong_token_too`<br>`test_non_ascii_token_is_refused_like_any_wrong_token` |
 | **Host Compromise via Rogue MCP Calls** | Critical | **Two gates**: this plugin refuses any server/tool the artifact's manifest does not declare. The operator's `mcp_allowlist` is enforced by Hermes inside `ctx.call_mcp`; this repo's tests cover only the plugin's mapping of Hermes' refusal, not Hermes' own check. The allowlist is per server, so an agent-written manifest can declare any tool on an allowed server. | `test_mcp_refuses_undeclared_server_or_tool_without_calling`<br>`test_mcp_operator_allowlist_refusal_maps_to_blocked_by_policy` |
-| **Prompt Injection via Artifact Submissions** | High | **Mitigation, not prevention**: the pushed message labels the JSON as user-supplied data, not instructions, and the data is JSON-encoded so it cannot close its code fence. That label is advice to the model, not a boundary. Anyone holding a link can submit, and in `never` mode that is anyone who has seen the URL. | `test_push_goes_to_creating_session_without_names_or_token` |
-| **Network Exfiltration via In-Page Scripts** | High | **Partial**: CSP `connect-src 'self'` stops `fetch`, XHR, WebSocket and EventSource to other hosts, and `object-src 'none'` plus the Permissions-Policy close other paths. It does **not** stop navigation: the sandbox allows popups that escape it, so a page can open or navigate to an external URL carrying data, and WebRTC is not covered by CSP. Treat page code as able to send out anything it can read, including MCP results. See Known gaps. | `test_page_needs_the_token_and_embeds_it` (checks the CSP header only) |
-| **Token Exposure in Browser History / Referrers** | Medium | **`always` mode**: `?k=<token>` is exchanged for a `SameSite=Lax`, `HttpOnly` cookie scoped to `Path=/a/<id>` (90 days) and removed from the address bar. The page's API token is separate and appears in the SSE URL (`/events?k=`); the listener's access log is off, so it reaches no log (known gap 3). `never` mode has no `?k=` on page links. | `test_link_exchange_redirects_to_clean_url_with_path_scoped_cookie` |
+| **Prompt Injection via Artifact Submissions** | Low | **Eliminated channel, residual risk**: the submit push is a fixed-template notice carrying only the artifact id and a document count — no title, no page-chosen strings — so nothing from the web page reaches the session as an injected message. The agent reads the data with `artifact_read`, as a tool result. A hostile page can still shape what the data *says* when read; treat it as untrusted input. Anyone holding a link can submit, and in `never` mode that is anyone who has seen the URL. | `test_push_is_a_notice_without_page_chosen_strings` |
+| **Network Exfiltration via In-Page Scripts** | Medium | **Shell frame, no popups**: `/a/<id>` is a server-owned shell (`frame-src 'self'`) that frames the artifact, whose sandbox has no popup flags, so a page cannot navigate the top level or open an escaping popup — the navigation path `connect-src 'self'` does not cover. `connect-src` still blocks `fetch`, XHR, WebSocket and EventSource to other hosts; `object-src 'none'` and the Permissions-Policy close other paths. Residual: WebRTC is not covered by CSP (accepted, see Known gaps), and the shell/iframe behaviour is not yet browser-verified. Treat page code as able to send out anything it can read, including MCP results. | `test_page_needs_the_token_and_embeds_it`<br>`test_page_is_sandboxed_with_opaque_origin` |
+| **Token Exposure in Browser History / Referrers** | Medium | **`always` mode**: `?k=<token>` is exchanged for a `SameSite=Lax`, `HttpOnly` cookie scoped to `Path=/a/<id>` (90 days) and removed from the address bar. The page's API token is separate and appears in the SSE URL (`/events?k=`); the listener's access log is off, so it reaches no log (accepted gap 3). `never` mode has no `?k=` on page links. `Referrer-Policy: no-referrer` on both shell and frame. | `test_link_exchange_redirects_to_clean_url_with_path_scoped_cookie` |
 
 ---
 
 ## 3. Security Architecture Details
 
-### 3.1 CSP Sandboxing & Origin Isolation
-Unlike Claude's native artifact architecture (which allocates independent subdomains for each artifact frame), `hermes-live-artifacts` runs on a single host origin (typically an internal Tailscale tailnet node IP or DNS name).
+### 3.1 Shell, CSP Sandboxing & Origin Isolation
+Unlike Claude's native artifact architecture (which allocates independent subdomains for each artifact frame), `hermes-live-artifacts` runs on a single host origin (typically a Tailscale tailnet node).
 
 To achieve strict isolation across artifacts:
-- Every artifact page response carries a `Content-Security-Policy` whose last directive is `sandbox ...` (the flag list is in architecture.md §5 and `app.py`).
+- The link `/a/<id>` serves a **server-owned shell** whose only content is an iframe of the artifact at `/a/<id>/frame`. The shell sets `frame-src 'self'`, carries `frame-ancestors` derived from `base_url` (`'self'`, the base_url host on any port, loopback dev origins — never a wildcard), and may itself be framed by those origins only.
+- The artifact document carries a `Content-Security-Policy` whose `sandbox` directive is `allow-scripts allow-forms allow-downloads allow-modals` — **no popup flags**, so a sandboxed popup (which could navigate itself anywhere) cannot be created, and the shell's `frame-src` keeps the frame pointed at this host.
 - Omission of `allow-same-origin` forces the browser to treat each document as possessing a unique, opaque origin (`null`).
 - Sandboxed documents cannot read or write `localStorage`, `sessionStorage`, `IndexedDB`, or browser cookies.
 - Cross-artifact DOM navigation and script interaction are blocked by standard browser boundary enforcement.
@@ -49,7 +50,8 @@ All state mutations and queries against `/api/<id>/*` require the per-artifact b
   $$\text{BearerToken} = \text{Base64URL}(\text{HMAC-SHA256}(K_{\text{install}}, \text{aid} \parallel ":" \parallel \text{salt}))$$
   A copy of `artifacts.db` alone therefore holds no working token. The artifact ids and all document data are in it in plaintext, and in `never` mode an id is enough to open the page, which embeds the token. The scheme protects the API token against a database-only leak; it is not encryption at rest.
 - **Installation key**: `.secret` in the data directory (or `HERMES_LIVE_ARTIFACTS_SECRET`). It is created with mode 0600 by writing a private temp file and hard-linking it into place, so concurrent first starts agree on one key and no reader sees a partial file. A key under 32 bytes is refused with an error instead of being used or replaced, because replacing it changes every token. To recover from a damaged file, delete it; every link and page token then changes.
-- **Revocation**: archiving an artifact replaces its salt, which invalidates its links, cookies and API token at once. `Store.rotate_token` does the same without archiving, but no agent tool exposes it yet (issue #6), so archiving is the only revocation available today.
+- **Data directory permissions**: created 0700 (existing directories are tightened on start); a new database is created 0600. Sidecar files (WAL/SHM) inherit the directory's protection.
+- **Revocation**: `artifact_rotate_link` rotates the salt, which invalidates the link (`?k=`), the page cookie, the API token and open event streams at once, and returns a fresh link. It refuses in `link_secret: never` mode, where the URL id is the credential and rotation cannot revoke the link — archiving is the revocation there. Archiving always replaces the salt too.
 
 ### 3.3 Not-found and forbidden responses
 What the code does, measured with `link_secret` set both ways (unknown id, archived id, existing id with no / wrong / non-ASCII `k`):
@@ -67,28 +69,32 @@ So "a request without the secret gets a 404" is true only in `always` mode. In `
 
 Tokens are compared as bytes in constant time (`hmac.compare_digest`); a non-ASCII token is simply a wrong token and gives the same status as any other.
 
-API routes return JSON errors with CORS headers, because a sandboxed page (origin `null`) would otherwise see only an opaque network error.
+API routes return JSON errors with CORS headers, because a sandboxed page (origin `null`) would otherwise see only an opaque network error. Request bodies must be JSON objects (400 otherwise) and are capped at 300 KiB (413 beyond).
 
 ### 3.4 CORS on the API
 The API answers `Access-Control-Allow-Origin: *` and answers every preflight with 204 without inspecting it. A page's origin is `null`, so no narrower value is possible and no credentials are involved. The browser therefore does not stop a page from calling another artifact's `/api/<id>/*`; the per-artifact token in `x-artifact` is the only barrier, and a page only ever contains its own.
 
-### 3.5 Backups
+### 3.5 Resource Limits
+- **Event streams**: at most 8 concurrent SSE connections per artifact; further requests get 429.
+- **Documents**: one document at most 256 KiB; an artifact holds at most 25,000 documents totalling 50 MiB (`quota_exceeded` beyond).
+- **API request bodies**: capped at 300 KiB before reading (413).
+- **Access log**: disabled on the listener (`AppRunner(access_log=None)`), so query-string tokens are never logged.
+
+### 3.6 Backups
 `hermes backup` archives the whole Hermes directory, which includes `plugin-data/hermes-live-artifacts/`. The operator has tested that the archive contains both `artifacts.db` and `.secret`. This is a deliberate design choice: the same archive already carries Hermes' auth tokens and other secrets, so it has to be protected as a secret store, and keeping the key with the database is what makes a restore work (a restore without `.secret` would change every token). Do not copy the backup, or `artifacts.db` on its own, to a less-trusted place expecting the HMAC scheme to protect it.
 
 ---
 
-## 4. Known gaps
+## 4. Known, accepted gaps
 
-From an independent audit on 2026-10-15. Items 1–2 were fixed the same day; items 3–8 are known and accepted. Evidence labels: measured = run against the code, observed = read in the code, hypothesis = not tested.
+Accepted residual risks, reviewed 2026-10-15. Not fixed by design or deferred deliberately.
 
-1. ~~**Data can leave by navigation or popup**~~ **Fixed**: `/a/<id>` is now a server-owned shell with the artifact in an iframe (`frame-src 'self'`) whose sandbox has no popup flags, so a page cannot navigate the top level or open an escaping popup. WebRTC remains outside CSP's reach (see the exfiltration row). Observed for the CSP; the browser behaviour is a hypothesis — verify manually in a browser.
-2. ~~**A link holder can inject text into the agent session**~~ **Fixed**: the submit push is now a notice carrying only the artifact id and a document count — no title, no page-chosen strings. The agent reads the data with `artifact_read`, as a tool result.
-3. **The API token is in the SSE URL** (accepted): `EventSource` cannot send headers, so the token rides in the `/events?k=` query. The listener's aiohttp access log is disabled (`AppRunner(access_log=None)`), so the token reaches no log; the only remaining exposure is a proxy in front of the listener, which the single-user, loopbound deployment does not have. Changing `shim.js` to a hand-parsed fetch stream was deferred (issue #9's territory, needs manual phone/desktop checks).
-4. ~~**The database and data directory are created with default permissions**~~ **Fixed**: the data directory is created 0700 (existing dirs are tightened on start) and a new database 0600.
-5. **No connection or size caps on the event stream and storage** — **Partly fixed**: SSE streams are capped at 8 per artifact (429 beyond that) and documents are capped at 50 MiB per artifact in total. Still open: pushing query filtering and `limit` into SQL (deferred to an issue; the in-Python filter reads all of a collection's rows).
-6. ~~**No tool rotates a link**~~ **Fixed**: `artifact_rotate_link` rotates the token (old links, cookies and open event streams die) and returns a fresh link. It refuses in `link_secret: never` mode, where the URL id is the credential and rotation cannot revoke the link — archive is the revocation there.
-7. **The event stream's change counter is global** (measured), so one artifact sees when others are written. `/healthz` exposes it without auth. Accepted: no data leaks, only write-activity timing.
-8. **No `Host` header check** (measured: a foreign `Host` returns 200). Accepted: tailnet hostnames vary and the token is the real gate. The old `https://*.ts.net` frame-ancestors wildcard was removed with fix 1; allowed framers are now derived from `base_url` (see issue #2's comment).
+1. **The API token is in the SSE URL**: `EventSource` cannot send headers, so the token rides in the `/events?k=` query. The access log is off, so it reaches no log; the only exposure is a proxy in front of the listener, which the single-user, loopbound deployment does not have. Moving to a fetch-based stream would rewrite `shim.js` for every artifact and needs manual phone/desktop checks — deferred until there is a reason.
+2. **WebRTC is not covered by CSP**: a page with a token could establish WebRTC connections whose candidates carry data. Not closed; treated as covered by "treat page code as able to send out anything it can read".
+3. **The event stream's change counter is global** (measured): `change_seq` is one number for all artifacts, so every page's stream sees writes to *any* artifact, and `/healthz` exposes it without auth. No data leaks — only write-activity timing and re-sync traffic.
+4. **No `Host` header check** (measured: a foreign `Host` returns 200). Accepted: tailnet hostnames vary and the token is the real gate.
+5. **Query filtering runs in Python**: `store.query` reads all of a collection's rows before filtering and limiting in memory, so a large collection costs proportional work per query. Pushing filtering and `limit` into SQL is deferred until document volumes justify it.
+6. **The shell/iframe design is not browser-verified**: the CSP and sandbox headers are test-asserted, but that a page really cannot navigate the top level or open an escaping popup, and that the shim works inside the frame, still needs a manual check on phone and desktop.
 
 ## 5. Reporting Security Vulnerabilities
 

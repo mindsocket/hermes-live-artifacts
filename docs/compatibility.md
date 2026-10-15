@@ -53,7 +53,7 @@ These follow from the design (single user, self-hosted, one origin), not from mi
   The sandbox also omits the popup flags, so `window.open` and `target=_blank` links do nothing (Claude's
   frame allows them); pages cannot open external sites. Checked in Chrome only; other browsers are untested.
   The shell/iframe structure itself is not browser-verified yet — a manual check that a page cannot navigate
-  the top level is still owed (SECURITY.md known gap 1).
+  the top level is still owed (security.md known gap 6).
 - **No sign-in, access by link.** Page access depends on possession of a link rather than a user account. Modes and
   limits are in the README (Security) and architecture.md.
 - **Autosave, not submit.** Pages write to `db` as the user edits. `claude.submit()` only adds the push to the

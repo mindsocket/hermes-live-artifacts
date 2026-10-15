@@ -107,12 +107,12 @@ All artifacts are hosted under a single origin (the gateway listener's hostname)
    - This assigns each page an **opaque origin** (`origin: null`).
    - Pages cannot access `localStorage`, `sessionStorage`, `IndexedDB`, or cookies.
    - A page cannot read another artifact's page: `/a/*` responses carry no CORS headers, and a sandboxed page has no credentials to send.
-   - The API answers `Access-Control-Allow-Origin: *`, so the browser does not stop a page calling another artifact's `/api/<id>/*`; the per-artifact token is the only barrier (SECURITY.md §3.4).
+   - The API answers `Access-Control-Allow-Origin: *`, so the browser does not stop a page calling another artifact's `/api/<id>/*`; the per-artifact token is the only barrier (security.md §3.4).
    - The headers are built in `app.py` (`CSP` + `ARTIFACT_SANDBOX` for the frame, `SHELL_CSP` for the shell).
 2. **Capability Token Header (`x-artifact`)**:
    - Every API call to `/api/<id>/*` must include the header `x-artifact: <token>`.
-   - The token is derived per artifact (SECURITY.md §3.2) and a page contains only its own, so a hostile artifact cannot authenticate to another's endpoints.
-3. **Link access** (`link_secret`; the response matrix is SECURITY.md §3.3):
+   - The token is derived per artifact (security.md §3.2) and a page contains only its own, so a hostile artifact cannot authenticate to another's endpoints.
+3. **Link access** (`link_secret`; the response matrix is security.md §3.3):
    - `always`: Links carry `?k=<token>`. On first open, the token is exchanged for an `HttpOnly`, `SameSite=Lax` cookie scoped strictly to `/a/<id>`, and stripped from the URL.
    - `never`: The 22-character unguessable ID is the bearer grant (reasonable on a private tailnet).
    - `auto` (default): `always` unless both the bind address and `base_url` are loopback.
@@ -136,4 +136,4 @@ All artifacts are hosted under a single origin (the gateway listener's hostname)
 
 ### C. Direct SQLite WAL vs. Separate Database Server
 - **Decision**: SQLite in WAL mode.
-- **Rationale**: Eliminates external database dependencies. Backups: `hermes backup` includes the data directory, so both `artifacts.db` and `.secret` are in the archive (see Backups in `SECURITY.md`).
+- **Rationale**: Eliminates external database dependencies. Backups: `hermes backup` includes the data directory, so both `artifacts.db` and `.secret` are in the archive (see Backups in `security.md`).
