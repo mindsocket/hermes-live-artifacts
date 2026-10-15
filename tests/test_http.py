@@ -18,25 +18,37 @@ def run(coro):
     return asyncio.run(coro)
 
 
-async def with_client(store, fn, on_submit=None, mcp_call=None, link_secret=True):
-    async with TestClient(TestServer(make_app(store, on_submit, mcp_call, link_secret))) as c:
+async def with_client(store, fn, on_submit=None, mcp_call=None, link_secret=True, base_url=""):
+    async with TestClient(TestServer(make_app(store, on_submit, mcp_call, link_secret, base_url))) as c:
         return await fn(c)
 
 
 def test_page_needs_the_token_and_embeds_it(store, art):
     async def go(c):
         assert (await c.get(f"/a/{art['id']}")).status == 404
-        assert (await c.get(f"/a/{art['id']}?k=wrong")).status == 404
+        assert (await c.get(f"/a/{art['id']}/frame")).status == 404
+        assert (await c.get(f"/a/{art['id']}/frame?k=wrong")).status == 404
+        # the link URL carries the secret; both shell and frame answer it (same ?k= exchange)
         r = await c.get(f"/a/{art['id']}?k={art['token']}")
         assert r.status == 200
-        body = await r.text()
-        assert "window.__ARTIFACT__" in body and "window.claude" in body and "<h1>hi</h1>" in body
-        assert art["token"] in body  # the page carries its own API credential
+        shell = await r.text()
+        # the shell holds the artifact in a frame and carries no artifact HTML or API token
+        assert f'src="/a/{art["id"]}/frame"' in shell and "<h1>hi</h1>" not in shell
+        assert art["token"] not in shell
         assert "Set-Cookie" not in r.headers
         csp = r.headers["Content-Security-Policy"]
-        assert "connect-src 'self'" in csp and "https://cdnjs.cloudflare.com" in csp
-        assert "fonts.googleapis.com" in csp and "worker-src 'self' blob:" in csp
-        assert "camera=()" in r.headers["Permissions-Policy"]
+        assert "frame-src 'self'" in csp and "frame-ancestors 'self'" in csp
+        assert "*.ts.net" not in csp
+        f = await c.get(f"/a/{art['id']}/frame?k={art['token']}")
+        assert f.status == 200
+        body = await f.text()
+        assert "window.__ARTIFACT__" in body and "window.claude" in body and "<h1>hi</h1>" in body
+        assert art["token"] in body  # the page carries its own API credential
+        fcsp = f.headers["Content-Security-Policy"]
+        assert "connect-src 'self'" in fcsp and "https://cdnjs.cloudflare.com" in fcsp
+        assert "fonts.googleapis.com" in fcsp and "worker-src 'self' blob:" in fcsp
+        assert "allow-same-origin" not in fcsp and "allow-popups" not in fcsp
+        assert "camera=()" in f.headers["Permissions-Policy"]
 
     run(with_client(store, go))
 
@@ -45,11 +57,21 @@ def test_fragment_is_wrapped_in_doctype_reset_and_body(store):
     a = store.create_artifact("frag", "<title>T</title><p>x</p>", {"db": {}})
 
     async def go(c):
-        body = await (await c.get(f"/a/{a['id']}?k={a['token']}")).text()
+        body = await (await c.get(f"/a/{a['id']}/frame?k={a['token']}")).text()
         assert "viewport-fit=cover" in body and "[hidden]:not([hidden=until-found i])" in body
         assert body.index("<style>") < body.index("window.__ARTIFACT__") < body.index("<body>")
 
     run(with_client(store, go))
+
+
+def test_shell_frame_ancestors_derived_from_base_url(store, art):
+    async def go(c):
+        r = await c.get(f"/a/{art['id']}")
+        assert r.status == 200
+        csp = r.headers["Content-Security-Policy"]
+        assert "https://node.tail1234.ts.net:*" in csp and "*.ts.net" not in csp
+
+    run(with_client(store, go, link_secret=False, base_url="https://node.tail1234.ts.net"))
 
 
 def test_cross_origin_post_without_the_token_header_is_rejected(store, art):
@@ -156,7 +178,7 @@ def test_archived_is_404(store, art):
 def test_update_in_place_visible_on_reload(store, art):
     async def go(c):
         store.update_artifact(art["id"], html="<h1>v2</h1>")
-        assert "<h1>v2</h1>" in await (await c.get(f"/a/{art['id']}?k={art['token']}")).text()
+        assert "<h1>v2</h1>" in await (await c.get(f"/a/{art['id']}/frame?k={art['token']}")).text()
 
     run(with_client(store, go))
 
@@ -182,11 +204,13 @@ def test_sse_emits_change_event(store, art):
 # ---------------------------------------------------------------- sandbox, CORS, clean URL
 def test_page_is_sandboxed_with_opaque_origin(store, art):
     async def go(c):
-        r = await c.get(f"/a/{art['id']}?k={art['token']}")
+        r = await c.get(f"/a/{art['id']}/frame?k={art['token']}")
         csp = r.headers["Content-Security-Policy"]
         assert "sandbox allow-scripts" in csp and "allow-same-origin" not in csp
-        for flag in ("allow-forms", "allow-downloads", "allow-modals", "allow-popups"):
+        for flag in ("allow-forms", "allow-downloads", "allow-modals"):
             assert flag in csp
+        for flag in ("allow-popups", "allow-popups-to-escape-sandbox"):
+            assert flag not in csp
 
     run(with_client(store, go))
 
@@ -359,7 +383,7 @@ def test_shim_config_carries_mcp_manifest_but_no_other_artifacts_token(store):
     other = store.create_artifact("o", "<p>o</p>", {"db": {}})
 
     async def go(c):
-        return await (await c.get(f"/a/{a['id']}?k={a['token']}")).text()
+        return await (await c.get(f"/a/{a['id']}/frame?k={a['token']}")).text()
 
     body = with_mcp(store, go, None)
     assert '"mcp": [{"server": "todo"' in body and other["token"] not in body
@@ -395,8 +419,11 @@ def test_link_secret_off_serves_clean_url_without_k_or_cookie(store, art):
     async def go(c):
         r = await c.get(f"/a/{art['id']}", allow_redirects=False)
         assert r.status == 200 and "Set-Cookie" not in r.headers
-        assert "sandbox allow-scripts" in r.headers["Content-Security-Policy"]
+        assert "frame-src 'self'" in r.headers["Content-Security-Policy"]  # the shell
+        f = await c.get(f"/a/{art['id']}/frame")
+        assert f.status == 200 and "sandbox allow-scripts" in f.headers["Content-Security-Policy"]
         assert (await c.get("/a/" + "A" * 22)).status == 404  # unknown long id
+        assert (await c.get(f"/a/{'A' * 22}/frame")).status == 404
 
     with_mode(store, go, False)
 

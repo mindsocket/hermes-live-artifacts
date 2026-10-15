@@ -198,6 +198,7 @@ def _start_listener(ctx, cfg: dict) -> None:
         gate=in_gateway if cfg["listen_process"] == "gateway" else None,
         mcp_call=getattr(ctx, "call_mcp", None),
         link_secret=cfg["link_secret"],
+        base_url=cfg["base_url"],
     )
     try:
         asyncio.get_running_loop()

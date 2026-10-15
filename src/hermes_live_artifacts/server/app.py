@@ -1,12 +1,18 @@
 """aiohttp listener: serves /a/<id> pages, /api/<id>/* (db, mcp), SSE. Loopback only; tailscale serve fronts it.
 
 Isolation. All artifacts share one origin (Tailscale Serve gives one hostname), so the browser alone would let
-page A read page B's data. Two mechanisms replace a separate origin per artifact:
-  1. Pages are served with a CSP `sandbox` directive: the document gets an opaque origin, so it cannot read
-     cookies, localStorage or IndexedDB, nor fetch another artifact's pages (no CORS, no credentials).
+page A read page B's data. Three mechanisms replace a separate origin per artifact:
+  1. `/a/<id>` is a server-owned shell (its own origin, normal CSP) whose only content is an iframe of
+     `/a/<id>/frame`, the artifact itself. The shell's `frame-ancestors` says who may embed the shell, and its
+     `frame-src 'self'` keeps the inner frame pointed at us. The artifact document is served with a CSP
+     `sandbox` that omits `allow-same-origin` (opaque origin: it cannot read cookies, localStorage or
+     IndexedDB) and omits both popup flags, so it cannot navigate the top level or open an escaping popup —
+     navigation is the one exfiltration path `connect-src 'self'` does not cover.
   2. The API is capability-based: each request carries the artifact's own token in the `x-artifact` header (which
      forces a CORS preflight), and a page only ever contains its own token. The API answers CORS with `*`
      and no credentials, since a sandboxed page has origin `null`.
+  3. `frame_ancestors_from(base_url)` derives who may frame the shell: `'self'`, the `base_url` host on any port
+     (the Hermes dashboard lives on the same tailnet host, unknown port), and loopback dev origins.
 Page access has two modes (`link_secret`). On: the link `/a/<id>?k=<token>` is exchanged for an HttpOnly cookie
 scoped to /a/<id>, then redirects to the clean URL; the cookie only authorises loading that one page, and rotating
 the token revokes link, cookie and API access. Off: the random id (122 bits) in `/a/<id>` is the only gate (security
@@ -21,6 +27,7 @@ import json
 import logging
 from collections.abc import Callable
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from aiohttp import web
 
@@ -82,12 +89,43 @@ CSP = (
     "img-src 'self' data: blob:; font-src 'self' data: blob: https://fonts.gstatic.com; "
     "media-src 'self' data: blob:; connect-src 'self' blob: https://fonts.googleapis.com https://fonts.gstatic.com; "
     "worker-src 'self' blob:; form-action 'self'; frame-src 'self' blob: data:; object-src 'none'; "
-    "base-uri 'self'; frame-ancestors 'self' http://127.0.0.1:* https://*.ts.net; "
-    # Opaque origin (no allow-same-origin). Flags added so ordinary page features work: forms, downloads
-    # (<a download>, the downloads capability), modals (confirm() in the downloads shim), and external links
-    # opening in a new tab that is not itself sandboxed.
-    "sandbox allow-scripts allow-forms allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox"
+    "base-uri 'self'"
 )
+# The artifact document: opaque origin (no allow-same-origin) and NO popup flags — `allow-popups` /
+# `allow-popups-to-escape-sandbox` are deliberately absent, so a sandboxed popup (which could navigate
+# itself to an external URL carrying data) cannot be created. Flags kept for ordinary page features:
+# forms, downloads (<a download>, the downloads capability) and modals (confirm() in the downloads shim).
+ARTIFACT_SANDBOX = "sandbox allow-scripts allow-forms allow-downloads allow-modals"
+# The shell is a top-level document we own: it frames only 'self' (the artifact iframe) and may itself be
+# framed by the origins derived from base_url (see frame_ancestors_from).
+SHELL_CSP = (
+    "default-src 'self'; style-src 'unsafe-inline'; frame-src 'self'; object-src 'none'; base-uri 'self'"
+)
+
+
+def frame_ancestors_from(base_url: str) -> str:
+    """Who may embed the shell: 'self', the base_url host on any port (the Hermes dashboard shares the
+    tailnet host; its port is not known to the plugin), and loopback dev origins. Derived, not configured."""
+    hosts = ["'self'", "http://127.0.0.1:*", "http://localhost:*"]
+    pub = (urlsplit(base_url).hostname or "") if base_url else ""
+    if pub and pub not in ("127.0.0.1", "localhost"):
+        scheme = urlsplit(base_url).scheme or "https"
+        hosts.append(f"{scheme}://{pub}:*")
+    return "frame-ancestors " + " ".join(hosts)
+
+
+def render_shell(a: dict, ancestors: str) -> str:
+    aid = a["id"]
+    return (
+        "<!doctype html><html><head><meta charset=utf8>"
+        '<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">'
+        f"<title>{a['title']}</title>"
+        "<style>html,body{margin:0;height:100%}iframe{display:block;width:100%;height:100%;border:0}"
+        "</style></head><body>"
+        f'<iframe src="/a/{aid}/frame" title="{a["title"]}"'
+        ' sandbox="allow-scripts allow-forms allow-downloads allow-modals"></iframe>'
+        f"</body></html><!-- {aid} {ancestors} -->"
+    )
 # The sandboxed page has origin `null`; no credentials are ever sent, so `*` is safe: the token header is the auth.
 CORS = {
     "Access-Control-Allow-Origin": "*",
@@ -127,11 +165,14 @@ def make_app(
     on_submit: Callable[[dict], None] | None = None,
     mcp_call: Callable[..., dict] | None = None,
     link_secret: bool = True,
+    base_url: str = "",
 ) -> web.Application:
     """link_secret=True: a page loads only with the artifact's token (`?k=`, then a path-scoped cookie).
     False: the long random id in the URL is the capability, so the URL needs no secret. Artifacts with a
-    legacy short id always require the secret. The in-page API token is used in both modes."""
+    legacy short id always require the secret. The in-page API token is used in both modes.
+    base_url feeds the shell's frame-ancestors (dashboard host)."""
     app = web.Application(middlewares=[cors_middleware])
+    ancestors = frame_ancestors_from(base_url)
 
     background_tasks: set[asyncio.Task] = set()
 
@@ -149,17 +190,17 @@ def make_app(
             raise web.HTTPForbidden(text="forbidden")
         return a
 
-    async def page(request: web.Request) -> web.StreamResponse:
-        aid = request.match_info["aid"]
-        needs_secret = needs_link_secret(aid, link_secret)
+    def auth_from_request(request: web.Request, aid: str, needs_secret: bool) -> dict:
         k = request.query.get("k")
+        here = request.path  # the ?k strip redirect must stay on the current path (shell or frame)
         if not needs_secret:
             a = live(aid)
             if k is not None:  # a link that still carries a secret: drop it from the address bar
-                raise web.HTTPFound(f"/a/{aid}")
-        elif k is not None:
+                raise web.HTTPFound(here)
+            return a
+        if k is not None:
             a = authed(k, aid, fail_status=404)
-            resp = web.HTTPFound(f"/a/{aid}")
+            resp = web.HTTPFound(here)
             # Cookie scoped to this one page path: it authorises reloading the page and nothing else. Lax, not
             # Strict: the link is opened from another app (Telegram), and Strict is withheld on that navigation.
             resp.set_cookie(
@@ -172,13 +213,32 @@ def make_app(
                 secure=request.secure or request.headers.get("x-forwarded-proto") == "https",
             )
             raise resp
-        else:
-            a = authed(request.cookies.get(f"ha_{aid}", ""), aid, fail_status=404)
+        return authed(request.cookies.get(f"ha_{aid}", ""), aid, fail_status=404)
+
+    async def shell(request: web.Request) -> web.StreamResponse:
+        """Top-level page the link points at. Own origin, so it may hold the frame; the artifact runs inside."""
+        aid = request.match_info["aid"]
+        a = auth_from_request(request, aid, needs_link_secret(aid, link_secret))
+        return web.Response(
+            text=render_shell(a, ancestors),
+            content_type="text/html",
+            headers={
+                "Content-Security-Policy": f"{SHELL_CSP}; {ancestors}",
+                "Cache-Control": "no-store",
+                "Referrer-Policy": "no-referrer",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    async def page(request: web.Request) -> web.StreamResponse:
+        """The artifact document itself, framed by `shell` (frame-src 'self' there keeps it that way)."""
+        aid = request.match_info["aid"]
+        a = auth_from_request(request, aid, needs_link_secret(aid, link_secret))
         return web.Response(
             text=render_page(a),
             content_type="text/html",
             headers={
-                "Content-Security-Policy": CSP,
+                "Content-Security-Policy": f"{CSP}; {ARTIFACT_SANDBOX}",
                 "Permissions-Policy": PERMISSIONS_POLICY,
                 "Cache-Control": "no-store",
                 "Referrer-Policy": "no-referrer",
@@ -257,7 +317,8 @@ def make_app(
         return web.json_response({"ok": True, "change_seq": store.change_seq()})
 
     app.router.add_get("/healthz", health)
-    app.router.add_get("/a/{aid}", page)
+    app.router.add_get("/a/{aid}", shell)
+    app.router.add_get("/a/{aid}/frame", page)
     app.router.add_get("/api/{aid}/events", events)
     app.router.add_post("/api/{aid}/{op:.+}", api)
     return app
@@ -299,12 +360,14 @@ class Listener:
         gate_timeout_s: float = 120.0,
         mcp_call: Callable[..., dict] | None = None,
         link_secret: bool = True,
+        base_url: str = "",
     ):
         self.store, self.host, self.port, self.on_submit = store, host, port, on_submit
         self.resolve_host = resolve_host or (lambda h: h)
         self.retry_s = retry_s
         self.gate, self.gate_timeout_s = gate, gate_timeout_s
         self.mcp_call, self.link_secret = mcp_call, link_secret
+        self.base_url = base_url
         self.runner: web.AppRunner | None = None
         self.bound: str | None = None
 
@@ -330,7 +393,10 @@ class Listener:
             return
         delay = self.retry_s
         while True:
-            runner = web.AppRunner(make_app(self.store, self.on_submit, self.mcp_call, self.link_secret))
+            runner = web.AppRunner(
+                make_app(self.store, self.on_submit, self.mcp_call, self.link_secret, self.base_url),
+                access_log=None,
+            )
             try:
                 host = await asyncio.to_thread(self.resolve_host, self.host)
                 await runner.setup()
