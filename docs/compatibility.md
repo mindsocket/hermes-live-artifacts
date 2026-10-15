@@ -44,12 +44,16 @@ These follow from the design (single user, self-hosted, one origin), not from mi
 - **One user.** `user.id()` is a constant, `can()` and `isOwner()` are true, and `name()` returns a fixed value.
   Pages that branch on a missing user id take a different path here.
 - **One origin, sandboxed pages.** All artifacts are served from one hostname, whereas Claude gives each its own
-  origin. Here each page is served in a CSP sandbox with an opaque origin and calls the API with a per-artifact
+  origin. Here each page runs inside a server-owned shell (`/a/<id>`) that frames the artifact (`/a/<id>/frame`),
+  and the artifact itself is served in a CSP sandbox with an opaque origin and calls the API with a per-artifact
   token (design in architecture.md). **[tested]** `test_one_artifacts_token_cannot_reach_another`,
   `test_page_is_sandboxed_with_opaque_origin`.
   The cost: `localStorage`, `sessionStorage`, IndexedDB and cookies are unavailable to pages (they throw
   `SecurityError`, whereas they work in Claude). Pages keep state in `db`, which autosave makes natural.
-  Checked in Chrome only; other browsers are untested.
+  The sandbox also omits the popup flags, so `window.open` and `target=_blank` links do nothing (Claude's
+  frame allows them); pages cannot open external sites. Checked in Chrome only; other browsers are untested.
+  The shell/iframe structure itself is not browser-verified yet — a manual check that a page cannot navigate
+  the top level is still owed (SECURITY.md known gap 1).
 - **No sign-in, access by link.** Page access depends on possession of a link rather than a user account. Modes and
   limits are in the README (Security) and architecture.md.
 - **Autosave, not submit.** Pages write to `db` as the user edits. `claude.submit()` only adds the push to the
@@ -61,8 +65,9 @@ These follow from the design (single user, self-hosted, one origin), not from mi
   `test_page_is_sandboxed_with_opaque_origin`
 - **Realtime.** Changes are delivered with a server-sent "something changed" event that triggers a refetch, with a
   30-second poll as a fallback.
-- **Limits.** Documents are capped at 256 KiB and an artifact holds at most 25,000 documents. These match the
-  contract's values. **[tested]** `store.py` enforces both.
+- **Limits.** Documents are capped at 256 KiB, an artifact holds at most 25,000 documents totalling 50 MiB, and a
+  page opens at most 8 event streams (429 beyond that). The first two match the contract's values. **[tested]**
+  `store.py` enforces the caps; `test_sse_connections_per_artifact_are_capped`.
 - **Error codes.** Errors reject with a `code`. The `db` API emits `invalid_argument`, `quota_exceeded` and `revoked`;
   the shim adds `unavailable` (the request failed), `not_granted` and `capability_removed`; `mcp` adds `bad_request`,
   `not_in_manifest`, `blocked_by_policy`, `approval_required`, `server_not_connected`, `server_unavailable`,

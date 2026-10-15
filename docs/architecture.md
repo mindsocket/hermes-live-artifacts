@@ -30,7 +30,8 @@ Hermes CLI / Cron Sessions ──────────┘          ▲
    - Operates in WAL mode with short immediate transactions and per-call connections for multi-process safety.
 3. **aiohttp HTTP Listener (`app.py`)**:
    - Runs inside the long-lived Hermes gateway process.
-   - Serves rendered artifact HTML at `/a/<id>` and runtime APIs at `/api/<id>/*` (`db`, `mcp`, `events`).
+   - Serves a server-owned shell at `/a/<id>` that frames the rendered artifact HTML at `/a/<id>/frame`
+     (popups removed; `frame-ancestors` derived from `base_url`), and runtime APIs at `/api/<id>/*` (`db`, `mcp`, `events`).
 4. **Client Runtime Shim (`shim.js`)**:
    - Injected into artifact HTML at load time.
    - Emulates Claude's artifact runtime contract 0.2.75 (`window.claude.use('db')`, `downloads`, `mcp`).
@@ -100,13 +101,14 @@ Which capabilities are implemented, stubbed or absent, and how they differ from 
 
 All artifacts are hosted under a single origin (the gateway listener's hostname). To provide isolation without requiring unique subdomains:
 
-1. **CSP Sandbox (`sandbox allow-scripts allow-forms allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox`)**:
-   - Pages are served with a `Content-Security-Policy` `sandbox` directive listing those tokens.
+1. **CSP Sandbox (`sandbox allow-scripts allow-forms allow-downloads allow-modals`)**:
+   - The link points at a server-owned **shell** page at `/a/<id>` (`frame-src 'self'`; its `frame-ancestors` is derived from `base_url`), whose only content is an iframe of the artifact at `/a/<id>/frame`.
+   - The artifact document is served with a `Content-Security-Policy` `sandbox` directive listing those tokens — **no popup flags**, so a page cannot navigate the top level or open a popup that escapes the sandbox (`connect-src` does not govern navigation).
    - This assigns each page an **opaque origin** (`origin: null`).
    - Pages cannot access `localStorage`, `sessionStorage`, `IndexedDB`, or cookies.
    - A page cannot read another artifact's page: `/a/*` responses carry no CORS headers, and a sandboxed page has no credentials to send.
    - The API answers `Access-Control-Allow-Origin: *`, so the browser does not stop a page calling another artifact's `/api/<id>/*`; the per-artifact token is the only barrier (SECURITY.md §3.4).
-   - The header is built in `app.py` (`CSP`); `sandbox` is the last directive.
+   - The headers are built in `app.py` (`CSP` + `ARTIFACT_SANDBOX` for the frame, `SHELL_CSP` for the shell).
 2. **Capability Token Header (`x-artifact`)**:
    - Every API call to `/api/<id>/*` must include the header `x-artifact: <token>`.
    - The token is derived per artifact (SECURITY.md §3.2) and a page contains only its own, so a hostile artifact cannot authenticate to another's endpoints.
