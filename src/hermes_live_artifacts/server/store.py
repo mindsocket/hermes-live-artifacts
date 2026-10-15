@@ -223,10 +223,21 @@ _UPDATE_ENCODERS = {"title": str, "html": str, "capabilities": json.dumps, "pinn
 class Store:
     def __init__(self, data_dir: Path | None = None):
         self.dir = Path(data_dir) if data_dir else default_data_dir()
-        self.dir.mkdir(parents=True, exist_ok=True)
+        # 0700: artifact data (forms, db contents) is private to the operating user, so other local
+        # accounts cannot read the database or key file through the directory.
+        self.dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            os.chmod(self.dir, 0o700)  # an existing dir may predate the mode
+        except OSError:
+            pass
         self.path = self.dir / "artifacts.db"
         self._key = self._get_installation_key()
         # executescript() commits implicitly, so it can't run inside _tx()'s BEGIN IMMEDIATE.
+        if not self.path.exists():
+            # A fresh db gets 0600 from the start; an existing one keeps whatever it had (re-chmodding a
+            # live multi-connection db is racy, and the 0700 directory already gates it).
+            fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            os.close(fd)
         c = sqlite3.connect(self.path, timeout=10)
         try:
             c.execute("PRAGMA journal_mode=WAL")  # persists in the db file, so _tx() needn't repeat it

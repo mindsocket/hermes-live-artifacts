@@ -221,6 +221,18 @@ def test_concurrent_writers_two_connections(store, aid):
 
 
 # ---------------------------------------------------------------- installation key (.secret)
+def test_data_dir_and_db_are_private(tmp_path):
+    Store(tmp_path)
+    assert tmp_path.stat().st_mode & 0o777 == 0o700
+    assert (tmp_path / "artifacts.db").stat().st_mode & 0o777 == 0o600
+
+
+def test_existing_dir_with_loose_mode_is_tightened(tmp_path):
+    tmp_path.chmod(0o755)
+    Store(tmp_path)
+    assert tmp_path.stat().st_mode & 0o777 == 0o700
+
+
 def test_key_is_created_once_private_and_reused(tmp_path):
     k1 = Store(tmp_path)._key
     assert len(k1) == 32 and (tmp_path / ".secret").stat().st_mode & 0o777 == 0o600
