@@ -7,3 +7,8 @@ build/
 dist/
 # Browser captures and saved responses hold account/org ids and session tokens: keep local, never commit.
 tmp/
+# The dashboard tab ships hand-written files under dashboard/dist; the `dist/` rule above is for build output.
+!dashboard/dist/
+node_modules/
+test-results/
+playwright-report/

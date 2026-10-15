@@ -31,11 +31,17 @@ Hermes CLI / Cron Sessions ──────────┘          ▲
 3. **aiohttp HTTP Listener (`app.py`)**:
    - Runs inside the long-lived Hermes gateway process.
    - Serves a server-owned shell at `/a/<id>` that frames the rendered artifact HTML at `/a/<id>/frame`
-     (popups removed; `frame-ancestors` derived from `base_url`), and runtime APIs at `/api/<id>/*` (`db`, `mcp`, `events`).
+     (`frame-ancestors` derived from `base_url`), and runtime APIs at `/api/<id>/*` (`db`, `mcp`, `events`).
 4. **Client Runtime Shim (`shim.js`)**:
    - Injected into artifact HTML at load time.
    - Emulates Claude's artifact runtime contract 0.2.75 (`window.claude.use('db')`, `downloads`, `mcp`).
-   - Queues each page's writes in call order and provides `claude.submit()`.
+   - Queues each page's writes in call order (notify included) and provides `claude.notify()`.
+5. **Dashboard tab (`dashboard/`)**:
+   - A Hermes dashboard plugin: `manifest.json`, a prebuilt-by-hand `dist/index.js` (plain JS on the host's plugin SDK)
+     and `plugin_api.py`, a FastAPI router mounted at `/api/plugins/hermes-live-artifacts/`.
+   - Runs in the dashboard process, not the gateway; both open the same SQLite file. The router is a thin wrapper
+     over `server/admin.py` and the `tools` module, which hold the logic and are covered by `tests/test_dashboard.py`.
+   - The UI polls `/seq` every 2 s (`change_seq` moves on every write) and refetches when it changes.
 
 ---
 
@@ -67,10 +73,10 @@ Storage lives in `$HERMES_HOME/plugin-data/hermes-live-artifacts/artifacts.db`:
    - `id`: 22-character URL-safe string from a random UUIDv4.
    - `title`, `html`, `capabilities` (JSON).
    - `origin_session`: Captured from Hermes gateway session context (`current_session_key()`).
-   - `wake`: Boolean flag indicating whether submit events should trigger an agent turn.
-   - `status`: `active`, `submitted`, or `archived`.
+   - `wake`: Boolean flag indicating whether a notify should push a notice into the creating session.
+   - `status`: `active` or `archived`.
    - `salt`: Random per-artifact salt. The page/API token is derived from it with the installation key, so only the salt is stored and replacing it revokes the token.
-   - Timestamps: `created_at`, `updated_at`, `submitted_at`, `last_write_at`, `archived_at`.
+   - Timestamps: `created_at`, `updated_at`, `notified_at` (the last notify), `archived_at`.
 
 2. **`docs` Table**:
    - `artifact_id`, `path`, `collection`, `data` (JSON), `version` (optimistic locking counter), `updated_at`.
@@ -89,11 +95,11 @@ The client environment aims for source compatibility with **Claude artifact runt
 Which capabilities are implemented, stubbed or absent, and how they differ from Claude's, is in
 [compatibility.md](compatibility.md). `mcp` calls are mapped through Hermes `ctx.call_mcp`.
 
-### Autosave vs. Submit
+### Autosave vs. Notify
 
 - **Autosave**: As the user interacts with the artifact, `window.claude.use('db')` writes documents directly to SQLite. The shim queues one page's writes in call order.
-- **Submit**: Calling `claude.submit()` sets a reserved document `meta/status` with `status: "submitted"`. 
-- **Session Injection**: When an artifact with an `origin_session` is submitted and `wake` is true, the server invokes Hermes's `ctx.inject_message` to push an `[artifact submitted]` block directly into the creating session.
+- **Notify**: `{notify: true}` on a db set or update, or `claude.notify()`, records `notified_at` in the same transaction as the save. Nothing is reserved: the page's own fields (for example a `status` it chose) are ordinary data.
+- **Session Injection**: A notify on an artifact with an `origin_session` and `wake` true invokes Hermes's `ctx.inject_message` with a fixed `[artifact notified]` notice. Notifies closer than 5 seconds apart push once. The notice carries no page data.
 
 ---
 
@@ -101,9 +107,9 @@ Which capabilities are implemented, stubbed or absent, and how they differ from 
 
 All artifacts are hosted under a single origin (the gateway listener's hostname). To provide isolation without requiring unique subdomains:
 
-1. **CSP Sandbox (`sandbox allow-scripts allow-forms allow-downloads allow-modals`)**:
+1. **CSP Sandbox (`sandbox allow-scripts allow-forms allow-downloads allow-modals allow-popups`)**:
    - The link points at a server-owned **shell** page at `/a/<id>` (`frame-src 'self'`; its `frame-ancestors` is derived from `base_url`), whose only content is an iframe of the artifact at `/a/<id>/frame`.
-   - The artifact document is served with a `Content-Security-Policy` `sandbox` directive listing those tokens — **no popup flags**, so a page cannot navigate the top level or open a popup that escapes the sandbox (`connect-src` does not govern navigation).
+   - The artifact document is served with a `Content-Security-Policy` `sandbox` directive listing those tokens — with `allow-popups` but **no `allow-popups-to-escape-sandbox`**: a popup opened from a user gesture inherits the opaque-origin sandbox, so it cannot read storage, cookies, or navigate the top level (see security.md §3.1).
    - This assigns each page an **opaque origin** (`origin: null`).
    - Pages cannot access `localStorage`, `sessionStorage`, `IndexedDB`, or cookies.
    - A page cannot read another artifact's page: `/a/*` responses carry no CORS headers, and a sandboxed page has no credentials to send.

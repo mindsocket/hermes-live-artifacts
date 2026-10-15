@@ -22,8 +22,9 @@ Pages call `window.claude.use(name)` and get the same shape of object the contra
 | `artifact`, `self` | Stub | Every method rejects `not_granted`. Changes go through the agent tools. |
 | `assets`, `sample`, `room`, `comments`, `files` | Not implemented | Resolve `null`. |
 
-Page-side extensions: `claude.submit()` marks the artifact `submitted` and, when the artifact was created from a chat
-session, pushes the submitted data back into that session. Claude pages do not use this and need not.
+Page-side extensions: `notify` (an option on `db` set and update, and `claude.notify()`) tells the agent the artifact
+is ready for review and, when the artifact was created from a chat session, pushes a notice into that session. It
+carries no data. Claude pages do not use this and need not.
 
 ## Agent side: not compatible, by design
 
@@ -48,8 +49,8 @@ These follow from the design (single user, self-hosted, one origin), not from mi
   new tab from the user's click; other schemes are refused, with a per-scheme "Open anyway" override.
 - **Access by link, not sign-in.** Page access depends on possession of a link rather than a user account.
   Modes and limits are in the README (Security).
-- **Autosave, not submit.** Pages write to `db` as the user edits. `claude.submit()` only adds the push to the
-  creating session.
+- **Autosave, not notify.** Pages write to `db` as the user edits. `notify` is a separate, explicit act that only
+  adds the notice to the creating session.
 - **Content Security Policy.** Each page is served with a policy that uses the same script, style and font allowlist
   Claude's artifact frame uses, so pages that load common CDN libraries work. Frame-ancestor rules differ because the
   pages are reached over a tailnet, not claude.ai. A page that loads CDN assets needs internet access on the device

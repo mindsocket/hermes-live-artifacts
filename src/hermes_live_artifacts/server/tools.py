@@ -34,6 +34,10 @@ def base_url() -> str:
     return _base_url.rstrip("/")
 
 
+def link_secret_enabled() -> bool:
+    return _link_secret
+
+
 def link(a: dict) -> str:
     if needs_link_secret(a["id"], _link_secret):
         return f"{base_url()}/a/{a['id']}?k={a['token']}"
@@ -71,10 +75,10 @@ def current_session_key() -> str:
 def _summary(a: dict) -> dict:
     out = {
         k: a[k]
-        for k in ("id", "title", "status", "pinned", "wake", "created_at", "updated_at", "submitted_at")
+        for k in ("id", "title", "status", "pinned", "wake", "created_at", "updated_at", "notified_at")
         if k in a
     }
-    out["push_on_submit"] = bool(a.get("wake") and a.get("origin_session"))
+    out["push_on_notify"] = bool(a.get("wake") and a.get("origin_session"))
     return out
 
 
@@ -152,24 +156,6 @@ def artifact_db_write(args: dict, **_kw) -> str:
     return _ok(path=path)
 
 
-def artifact_rotate_link(args: dict, **_kw) -> str:
-    """Rotate the artifact's token: existing links (?k=), cookies and open event streams die; the agent
-    gets a fresh link. In `never` mode the id in the URL is the credential, so rotating does not revoke
-    the page link — refuse rather than imply a revocation that did not happen."""
-    aid = args.get("id")
-    if not _link_secret:
-        return _err(
-            "link rotation is meaningless with link_secret=never: the id in the URL is the "
-            "capability and rotating the token does not revoke the link. Use artifact_archive to revoke."
-        )
-    try:
-        store().rotate_token(aid)
-    except KeyError:
-        return _err(f"no such artifact {aid}")
-    a = store().get_artifact(aid)
-    return _ok(link=link(a), rotated=aid)
-
-
 def artifact_archive(args: dict, **_kw) -> str:
     try:
         store().archive(args.get("id"))
@@ -211,16 +197,16 @@ TOOLS = [
             "artifact_create",
             "Create an interactive HTML artifact (form, review list, dashboard) the user opens by deep link. Input "
             "is persisted to a per-artifact document DB readable via artifact_read. Page code uses "
-            "`const db = await claude.use('db')`; call `claude.submit()` to mark it submitted. Returns the deep "
-            "link. When created from a chat session, the entered data is pushed back into that same session as a "
-            "message on first submit (push_on_submit=true in the result), so do not poll: share the link and end "
-            "your turn. Pass wake=false to opt out.",
+            "`const db = await claude.use('db')`. A save that should tell the agent the data is ready for review "
+            "passes `{notify: true}`, or the page calls `claude.notify()`. Returns the deep link. When created from a "
+            "chat session, a notify pushes a notice into that same session (push_on_notify=true in the result), so "
+            "do not poll: share the link and end your turn. Pass wake=false to opt out.",
             {
                 "title": {"type": "string"},
                 "html": {"type": "string", "description": "Body HTML or full document"},
                 "wake": {
                     "type": "boolean",
-                    "description": "Push the submitted data back to this session (default true)",
+                    "description": "Push a notice to this session when the page notifies (default true)",
                 },
                 "capabilities": {
                     "type": "object",
@@ -256,7 +242,7 @@ TOOLS = [
         _schema(
             "artifact_list",
             "List artifacts (no html/token).",
-            {"status": {"type": "string", "enum": ["active", "submitted", "archived"]}},
+            {"status": {"type": "string", "enum": ["active", "archived"]}},
             [],
         ),
         artifact_list,
@@ -282,17 +268,6 @@ TOOLS = [
             ["id", "path", "data"],
         ),
         artifact_db_write,
-    ),
-    (
-        _schema(
-            "artifact_rotate_link",
-            "Rotate an artifact's link secret: old links, page cookies and open sessions stop working; "
-            "returns the new link. Refuses with an error when link_secret is `never` (the URL id is the "
-            "capability) — archive instead to revoke.",
-            {"id": _ID},
-            ["id"],
-        ),
-        artifact_rotate_link,
     ),
     (
         _schema(

@@ -32,16 +32,15 @@ MAX_IN_VALUES = 30
 MAX_LIMIT = 1000
 DEFAULT_LEASE_MS, MIN_LEASE_MS, MAX_LEASE_MS = 30_000, 1_000, 600_000
 _SEG_RE = re.compile(r"^[A-Za-z0-9_\-.~:@+]+$")
-SUBMIT_DOC = "meta/status"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS artifacts (
   id TEXT PRIMARY KEY, title TEXT NOT NULL, html TEXT NOT NULL,
   capabilities TEXT NOT NULL DEFAULT '{}',
-  pinned INTEGER NOT NULL DEFAULT 0, origin_session TEXT, wake INTEGER NOT NULL DEFAULT 1, woken_at REAL,
+  pinned INTEGER NOT NULL DEFAULT 0, origin_session TEXT, wake INTEGER NOT NULL DEFAULT 1,
   status TEXT NOT NULL DEFAULT 'active', salt TEXT NOT NULL,
   created_at REAL NOT NULL, updated_at REAL NOT NULL,
-  submitted_at REAL, last_write_at REAL, archived_at REAL
+  notified_at REAL, archived_at REAL
 );
 CREATE TABLE IF NOT EXISTS docs (
   artifact_id TEXT NOT NULL, path TEXT NOT NULL, collection TEXT NOT NULL,
@@ -398,8 +397,6 @@ class Store:
                 raise ValueError(f"cannot update {k}")
             sets.append(f"{k}=?")
             vals.append(_UPDATE_ENCODERS[k](v))
-            if k == "html":
-                sets.append("woken_at=NULL")  # a revised page is a new round: its next submit may wake again
         if not sets:
             return self.get_artifact(aid)
         sets.append("updated_at=?")
@@ -410,24 +407,17 @@ class Store:
             self._bump(c)
         return self.get_artifact(aid)
 
-    def claim_wake(self, aid: str) -> bool:
-        """Atomically take the one-per-round wake for this artifact. True only for the caller that wins it,
-        and only when the artifact has an origin session and wake is on, so duplicate submits (double tap,
-        retried request, two tabs) cannot start duplicate agent turns."""
+    def notify(self, aid: str) -> dict:
+        """The page says its data is ready for review. Records the time only: a notify carries no payload."""
         with self._tx() as c:
-            return (
-                c.execute(
-                    "UPDATE artifacts SET woken_at=? WHERE id=? AND woken_at IS NULL AND wake=1 "
-                    "AND origin_session IS NOT NULL AND status!='archived'",
-                    (time.time(), aid),
-                ).rowcount
-                == 1
-            )
+            self._require_artifact(c, aid)
+            self._mark_notified(c, aid, time.time())
+            self._bump(c)
+        return self.get_artifact(aid)
 
-    def release_wake(self, aid: str) -> None:
-        """Give the wake back when delivery failed, so a later submit can try again."""
-        with self._tx() as c:
-            c.execute("UPDATE artifacts SET woken_at=NULL WHERE id=?", (aid,))
+    @staticmethod
+    def _mark_notified(c: sqlite3.Connection, aid: str, now: float) -> None:
+        c.execute("UPDATE artifacts SET notified_at=? WHERE id=?", (now, aid))
 
     def rotate_token(self, aid: str) -> str:
         salt = _new_salt()
@@ -456,22 +446,6 @@ class Store:
                 raise KeyError(aid)
             self._bump(c)
 
-    def archive_due(self, days: int = 14, now: float | None = None) -> list[str]:
-        """Archive unpinned artifacts idle `days` after submit (or last write). Returns ids."""
-        now = now or time.time()
-        cutoff = now - days * 86400
-        with self._tx() as c:
-            rows = c.execute(
-                "SELECT id FROM artifacts WHERE status!='archived' AND pinned=0 AND "
-                "COALESCE(submitted_at, last_write_at, created_at) < ?",
-                (cutoff,),
-            ).fetchall()
-            for r in rows:
-                self._archive_row(c, r["id"], now)
-            if rows:
-                self._bump(c)
-        return [r["id"] for r in rows]
-
     # ------------------------------------------------ documents
     def _row_doc(self, r: sqlite3.Row) -> dict:
         return {
@@ -494,7 +468,7 @@ class Store:
             return {"id": path.rsplit("/", 1)[-1], "path": path, "exists": False, "data": None}
         return self._row_doc(r)
 
-    def _write(self, c: sqlite3.Connection, aid: str, path: str, data: dict, *, mode: str) -> None:
+    def _write(self, c: sqlite3.Connection, aid: str, path: str, data: dict, *, mode: str, notify: bool) -> None:
         segs = split_path(path, kind="doc")
         coll = "/".join(segs[:-1])
         row = self._doc_row(c, aid, path)
@@ -522,15 +496,8 @@ class Store:
                 "UPDATE docs SET data=?, version=version+1, updated_at=? WHERE artifact_id=? AND path=?",
                 (body, now, aid, path),
             )
-        self._after_write(c, aid, path, data, now)
-
-    def _after_write(self, c: sqlite3.Connection, aid: str, path: str, data: dict, now: float) -> None:
-        sets, vals = "last_write_at=?", [now]
-        if path == SUBMIT_DOC and data.get("status") == "submitted":
-            sets += ", status=CASE WHEN status='archived' THEN status ELSE 'submitted' END, "
-            sets += "submitted_at=COALESCE(submitted_at, ?)"
-            vals.append(now)
-        c.execute(f"UPDATE artifacts SET {sets} WHERE id=?", [*vals, aid])
+        if notify:
+            self._mark_notified(c, aid, now)
         self._bump(c)
 
     def _require_artifact(self, c: sqlite3.Connection, aid: str) -> None:
@@ -540,15 +507,15 @@ class Store:
         if r["status"] == "archived":
             raise DbError("revoked", "artifact is archived")
 
-    def set_doc(self, aid: str, path: str, data: dict) -> None:
+    def set_doc(self, aid: str, path: str, data: dict, *, notify: bool = False) -> None:
         with self._tx() as c:
             self._require_artifact(c, aid)
-            self._write(c, aid, path, data, mode="set")
+            self._write(c, aid, path, data, mode="set", notify=notify)
 
-    def update_doc(self, aid: str, path: str, data: dict) -> None:
+    def update_doc(self, aid: str, path: str, data: dict, *, notify: bool = False) -> None:
         with self._tx() as c:
             self._require_artifact(c, aid)
-            self._write(c, aid, path, data, mode="update")
+            self._write(c, aid, path, data, mode="update", notify=notify)
 
     def delete_doc(self, aid: str, path: str) -> None:
         split_path(path, kind="doc")
@@ -594,7 +561,7 @@ class Store:
             if busy:
                 return {"acquired": False, "expiresAt": _iso(row["lease_expires"])}
             body = merge(json.loads(row["data"]) if row else {}, data or {})
-            self._write(c, aid, path, body, mode="set")
+            self._write(c, aid, path, body, mode="set", notify=False)
             exp = now + ttl / 1000
             c.execute(
                 "UPDATE docs SET lease_holder=?, lease_expires=? WHERE artifact_id=? AND path=?",
@@ -608,6 +575,10 @@ class Store:
         with self._read() as c:
             rows = c.execute("SELECT path,data FROM docs WHERE artifact_id=? ORDER BY path", (aid,)).fetchall()
         return {r["path"]: json.loads(r["data"]) for r in rows}
+
+    def doc_counts(self) -> dict[str, int]:
+        with self._read() as c:
+            return {r[0]: r[1] for r in c.execute("SELECT artifact_id, COUNT(*) FROM docs GROUP BY artifact_id")}
 
     def export_all(self) -> dict:
         artifacts = self.list_artifacts(full=True)

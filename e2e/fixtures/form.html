@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>E2E fixture</title></head>
+<body>
+  <input id="name" aria-label="name">
+  <button id="save">Save</button>
+  <button id="submit">Submit</button>
+  <button id="notify">Notify only</button>
+  <button id="add">Add</button>
+  <button id="bad">Bad path</button>
+  <pre id="result"></pre>
+  <a id="link" href="/__e2e/landing">link</a>
+  <button id="open">Open</button>
+  <pre id="snapshot">waiting</pre>
+  <pre id="sandbox"></pre>
+  <script>
+    (async () => {
+      const db = await claude.use("db");
+      db.collection("form").onSnapshot((snap) => {
+        document.getElementById("snapshot").textContent = JSON.stringify(
+          Object.fromEntries(snap.docs.map((d) => [d.id, d.data()])),
+        );
+      });
+      document.getElementById("save").onclick = () =>
+        db.doc("form/answers").set({ name: document.getElementById("name").value });
+      document.getElementById("submit").onclick = () =>
+        db.doc("form/answers").set({ name: document.getElementById("name").value, status: "submitted" }, { notify: true });
+      document.getElementById("notify").onclick = () => claude.notify();
+      const result = document.getElementById("result");
+      document.getElementById("add").onclick = () =>
+        db.collection("items").add({ n: 1 }).then((ref) => (result.textContent = ref.id));
+      document.getElementById("bad").onclick = () =>
+        db.doc("bad").set({}).catch((e) => (result.textContent = e.code));
+      document.getElementById("open").onclick = () => window.open(new URL("/__e2e/landing", location.href).href);
+      let storage;
+      try { storage = String(localStorage.length); } catch (e) { storage = e.name; }
+      document.getElementById("sandbox").textContent = JSON.stringify({ storage });
+    })();
+  </script>
+</body>
+</html>

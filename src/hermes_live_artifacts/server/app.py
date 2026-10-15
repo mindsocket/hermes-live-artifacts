@@ -6,8 +6,8 @@ page A read page B's data. Three mechanisms replace a separate origin per artifa
      `/a/<id>/frame`, the artifact itself. The shell's `frame-ancestors` says who may embed the shell, and its
      `frame-src 'self'` keeps the inner frame pointed at us. The artifact document is served with a CSP
      `sandbox` that omits `allow-same-origin` (opaque origin: it cannot read cookies, localStorage or
-     IndexedDB) and omits both popup flags, so it cannot navigate the top level or create a popup of its
-     own (external links go through the shim's interception; see docs/security.md known gap 6) —
+     IndexedDB) and omits `allow-popups-to-escape-sandbox` (`allow-popups` lets the shim open links directly
+     from user gestures; popups inherit the opaque sandbox — see docs/security.md §3.1) —
      navigation is the one exfiltration path `connect-src 'self'` does not cover.
   2. The API is capability-based: each request carries the artifact's own token in the `x-artifact` header (which
      forces a CORS preflight), and a page only ever contains its own token. The API answers CORS with `*`
@@ -33,7 +33,7 @@ from urllib.parse import urlsplit
 from aiohttp import web
 
 from . import mcp as mcp_mod
-from .store import SUBMIT_DOC, DbError, Store, needs_link_secret
+from .store import DbError, Store, needs_link_secret
 
 log = logging.getLogger("hermes_live_artifacts")
 SHIM = (Path(__file__).parent / "shim.js").read_text()
@@ -43,6 +43,8 @@ MAX_BODY_BYTES = 300 * 1024
 # Open SSE streams per artifact. Each stream wakes once a second, so an unbounded page (or a hostile
 # one holding its token) could pile up loops; 8 is well above any real page's listener count.
 MAX_SSE_PER_ARTIFACT = 8
+# Operations that may carry `notify: true`: a save and its notification travel in one request.
+NOTIFY_OPS = ("db/set", "db/update")
 # The reset every page fragment is wrapped in. Pages rely on it: 14px system font, zero body margin, safe-area padding on :root, and a
 # [hidden] rule that beats author display values. We add no design tokens of our own.
 RESET_CSS = (
@@ -162,7 +164,7 @@ async def cors_middleware(request: web.Request, handler):
         return web.Response(status=204, headers=CORS)
     try:
         resp = await handler(request)
-    except web.HTTPException as e:  # 403/404 must carry CORS too, or the page only sees an opaque network error
+    except web.HTTPException as e:  # the 404 must carry CORS too, or the page only sees an opaque network error
         e.headers.update(CORS)
         raise
     if not resp.prepared:
@@ -172,7 +174,7 @@ async def cors_middleware(request: web.Request, handler):
 
 def make_app(
     store: Store,
-    on_submit: Callable[[dict], None] | None = None,
+    on_notify: Callable[[dict], None] | None = None,
     mcp_call: Callable[..., dict] | None = None,
     link_secret: bool = True,
     base_url: str = "",
@@ -185,6 +187,22 @@ def make_app(
     ancestors = frame_ancestors_from(base_url)
 
     background_tasks: set[asyncio.Task] = set()
+
+    def notify_soon(aid: str) -> None:
+        """Run the notify hook off the request path. Never fails the request that triggered it."""
+        if on_notify is None:
+            return
+
+        async def _fire() -> None:
+            try:
+                await asyncio.to_thread(lambda: on_notify(store.get_artifact(aid)))
+            except Exception:
+                log.exception("on_notify hook failed")
+
+        task = asyncio.create_task(_fire())
+        background_tasks.add(task)
+        task.add_done_callback(background_tasks.discard)
+
     sse_counts: dict[str, int] = {}  # open event streams per artifact
 
     def live(aid: str) -> dict:
@@ -193,12 +211,12 @@ def make_app(
             raise web.HTTPNotFound(text="not found")
         return a
 
-    def authed(token: str, aid: str, fail_status: int = 403) -> dict:
+    def authed(token: str, aid: str) -> dict:
+        """A wrong token is a 404, the same as an unknown or archived id, so a response never says whether an
+        id exists."""
         a = live(aid)
         if not same_token(token, a["token"]):
-            if fail_status == 404:
-                raise web.HTTPNotFound(text="not found")
-            raise web.HTTPForbidden(text="forbidden")
+            raise web.HTTPNotFound(text="not found")
         return a
 
     def auth_from_request(request: web.Request, aid: str, needs_secret: bool) -> dict:
@@ -210,7 +228,7 @@ def make_app(
                 raise web.HTTPFound(here)
             return a
         if k is not None:
-            a = authed(k, aid, fail_status=404)
+            a = authed(k, aid)
             resp = web.HTTPFound(here)
             # Cookie scoped to this one page path: it authorises reloading the page and nothing else. Lax, not
             # Strict: the link is opened from another app (Telegram), and Strict is withheld on that navigation.
@@ -224,7 +242,7 @@ def make_app(
                 secure=request.secure or request.headers.get("x-forwarded-proto") == "https",
             )
             raise resp
-        return authed(request.cookies.get(f"ha_{aid}", ""), aid, fail_status=404)
+        return authed(request.cookies.get(f"ha_{aid}", ""), aid)
 
     async def shell(request: web.Request) -> web.StreamResponse:
         """Top-level page the link points at. Own origin, so it may hold the frame; the artifact runs inside."""
@@ -279,6 +297,16 @@ def make_app(
                 return web.json_response({"result": await asyncio.to_thread(mcp_mod.call_tool, a, body, mcp_call)})
             except mcp_mod.McpError as e:
                 return web.json_response({"error": e.to_dict()}, status=e.status)
+        if "notify" in body and (op not in NOTIFY_OPS or not isinstance(body["notify"], bool)):
+            return web.json_response(
+                {
+                    "error": {
+                        "code": "invalid_argument",
+                        "message": "notify must be true or false, on db/set and db/update",
+                    }
+                },
+                status=400,
+            )
         try:
             res = await asyncio.to_thread(_dispatch, store, aid, op, body)
         except DbError as e:
@@ -286,23 +314,8 @@ def make_app(
             return web.json_response({"error": e.to_dict()}, status=status)
         except (KeyError, TypeError, ValueError) as e:
             return web.json_response({"error": {"code": "invalid_argument", "message": str(e)}}, status=400)
-        is_submit = (
-            op in ("db/set", "db/update")
-            and body.get("path") == SUBMIT_DOC
-            and (body.get("data") or {}).get("status") == "submitted"
-        )
-        if is_submit and on_submit:
-
-            async def _fire() -> None:
-                # Off the event loop: the hook may shell out (`hermes send`). Never fails the request.
-                try:
-                    await asyncio.to_thread(on_submit, store.get_artifact(aid))
-                except Exception:
-                    log.exception("on_submit hook failed")
-
-            task = asyncio.create_task(_fire())
-            background_tasks.add(task)
-            task.add_done_callback(background_tasks.discard)
+        if op == "notify" or body.get("notify") is True:
+            notify_soon(aid)
         return web.json_response(res)
 
     async def events(request: web.Request) -> web.StreamResponse:
@@ -361,16 +374,19 @@ def _dispatch(store: Store, aid: str, op: str, b: dict) -> dict:
     if op == "db/get":
         return {"doc": store.get_doc(aid, b.get("path"))}
     if op == "db/set":
-        store.set_doc(aid, b.get("path"), b.get("data"))
+        store.set_doc(aid, b.get("path"), b.get("data"), notify=b.get("notify") is True)
         return {}
     if op == "db/update":
-        store.update_doc(aid, b.get("path"), b.get("data"))
+        store.update_doc(aid, b.get("path"), b.get("data"), notify=b.get("notify") is True)
         return {}
     if op == "db/delete":
         store.delete_doc(aid, b.get("path"))
         return {}
     if op == "db/query":
         return {"docs": store.query(aid, b.get("path"), b.get("filters"), b.get("orderBy"), b.get("limit"))}
+    if op == "notify":
+        store.notify(aid)
+        return {}
     if op == "db/acquire":
         return {"result": store.acquire(aid, b.get("path"), b.get("holder"), b.get("ttlMs") or 0, b.get("data"))}
     raise DbError("invalid_argument", f"unknown op {op}")
@@ -386,7 +402,7 @@ class Listener:
         store: Store,
         host: str = "127.0.0.1",
         port: int = 47318,
-        on_submit=None,
+        on_notify=None,
         resolve_host: Callable[[str], str] | None = None,
         retry_s: float = 2.0,
         gate: Callable[[], bool] | None = None,
@@ -395,7 +411,7 @@ class Listener:
         link_secret: bool = True,
         base_url: str = "",
     ):
-        self.store, self.host, self.port, self.on_submit = store, host, port, on_submit
+        self.store, self.host, self.port, self.on_notify = store, host, port, on_notify
         self.resolve_host = resolve_host or (lambda h: h)
         self.retry_s = retry_s
         self.gate, self.gate_timeout_s = gate, gate_timeout_s
@@ -427,7 +443,7 @@ class Listener:
         delay = self.retry_s
         while True:
             runner = web.AppRunner(
-                make_app(self.store, self.on_submit, self.mcp_call, self.link_secret, self.base_url),
+                make_app(self.store, self.on_notify, self.mcp_call, self.link_secret, self.base_url),
                 access_log=None,
             )
             try:

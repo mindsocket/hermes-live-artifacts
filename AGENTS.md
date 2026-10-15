@@ -11,6 +11,7 @@ docs/compatibility.md before touching `shim.js` or the skills, and docs/architec
     uv run ruff check                  # lint checks (configured in pyproject.toml)
     uv run ruff format --check         # check formatting (run `uv run ruff format` to fix)
     uv run python scripts/validate.py  # validate plugin structure and manifest (isolated check)
+    bun install && bun run test:e2e    # browser tests (Playwright, installed Chrome); a separate run, not part of pytest
 
 ## Layout and import rules
 
@@ -28,7 +29,7 @@ docs/compatibility.md before touching `shim.js` or the skills, and docs/architec
   `_HERMES_GATEWAY` env marker: it leaks into child processes and is unset in others.
 - Never hardcode a person's name, chat id or session. The creating session is captured per call from the
   gateway's context (`current_session_key`); notification targets are not configured.
-- A page-supplied value is untrusted: the pushed `[artifact submitted]` message frames the JSON as data, not
+- A page-supplied value is untrusted: the pushed `[artifact notified]` message frames the JSON as data, not
   instructions. Keep it that way.
 - Writes from one page are queued in call order in the shim because the server handles requests on a thread pool.
 - Artifacts share one origin, so isolation between them rests on two things that must stay together: the CSP
@@ -56,5 +57,9 @@ docs/compatibility.md before touching `shim.js` or the skills, and docs/architec
 
 - `tests/test_http.py` drives the real aiohttp app with `TestClient`; `test_store.py` covers the Firestore-style
   semantics; `test_plugin.py` covers registration and listener hosting with a fake `ctx`.
-- Page JavaScript (`shim.js`, artifact HTML) has no automated browser tests; changes there need a manual check in a
-  real browser, phone and desktop.
+- Page JavaScript (`shim.js`, artifact HTML) is covered by `e2e/` (Playwright, TypeScript, run with `bun run
+  test:e2e`): `e2e/serve_fixture.py` starts the real aiohttp app over a throwaway store and each test gets a fresh
+  fixture artifact (`e2e/fixtures/form.html`). It covers the happy path: db roundtrip, `onSnapshot` over SSE,
+  `add` ids, server-side path errors, notify (with and without a save), a lost event stream being reported, link and
+  `window.open` popups, and the storage sandbox. Anything it does not cover (real phone
+  behaviour, the dashboard tab, the real Hermes install) still needs a manual check.

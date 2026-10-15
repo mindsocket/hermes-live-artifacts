@@ -21,15 +21,24 @@ Status: working spike, being hardened.
   SQLite file). It serves `/a/<id>` pages and `/api/<id>/*`.
 - A link is `<base_url>/a/<id>` (22-character random id). With `link_secret: always` it also carries `?k=<token>`, which is
   exchanged for a cookie and dropped from the URL. See [Security](#security).
-- Pages see `window.claude` (injected shim). `claude.submit()` marks the artifact submitted and, when it was created
-  from a chat session, pushes the entered data back into that session as an `[artifact submitted]` message.
+- Pages see `window.claude` (injected shim). A db save can carry `{notify: true}`, and `claude.notify()` stands alone:
+  either tells the agent the data is ready for review. When the artifact was created from a chat session, the notify
+  pushes a fixed `[artifact notified]` notice into that session; the agent reads the data with `artifact_read`.
 
 ## Tools
 
-    artifact_create(title, html, capabilities?, pinned?, seed?, wake?)   returns the link and push_on_submit
+    artifact_create(title, html, capabilities?, pinned?, seed?, wake?)   returns the link and push_on_notify
     artifact_update(id, html?, ...)    in place; db contents kept
     artifact_read(id)                  status plus every document
-    artifact_list / artifact_db_write / artifact_rotate_link / artifact_archive / artifact_delete / artifact_export
+    artifact_list / artifact_db_write / artifact_archive / artifact_delete / artifact_export
+
+## Dashboard tab
+
+`dashboard/` adds an **Artifacts** tab to the Hermes dashboard: list by status, a device-sized preview of the page, a
+live view of its documents (refreshes as the page autosaves), and copy link / rotate link / pin / archive / delete /
+export JSON. It needs no build step. The backend (`dashboard/plugin_api.py`) runs in the dashboard process and reads
+the same SQLite file as the gateway. Rotate is not offered (and the API refuses it) when `link_secret` is `never`. Restart the dashboard after
+updating the plugin.
 
 ## Skills
 

@@ -18,8 +18,8 @@ def run(coro):
     return asyncio.run(coro)
 
 
-async def with_client(store, fn, on_submit=None, mcp_call=None, link_secret=True, base_url=""):
-    async with TestClient(TestServer(make_app(store, on_submit, mcp_call, link_secret, base_url))) as c:
+async def with_client(store, fn, on_notify=None, mcp_call=None, link_secret=True, base_url=""):
+    async with TestClient(TestServer(make_app(store, on_notify, mcp_call, link_secret, base_url))) as c:
         return await fn(c)
 
 
@@ -96,7 +96,7 @@ def test_cross_origin_post_without_the_token_header_is_rejected(store, art):
         r = await c.post(
             f"/api/{art['id']}/db/set", json={"path": "a/b", "data": {}}, headers={"Origin": "https://evil.example"}
         )
-        assert r.status == 403
+        assert r.status == 404
 
     run(with_client(store, go))
 
@@ -109,8 +109,8 @@ def test_one_artifacts_token_cannot_reach_another(store, art):
     async def go(c):
         for op, body in (("get", {"path": "secret/s1"}), ("set", {"path": "secret/s1", "data": {"v": "x"}})):
             r = await c.post(f"/api/{other['id']}/db/{op}", json=body, headers={"x-artifact": art["token"]})
-            assert r.status == 403
-        assert (await c.get(f"/api/{other['id']}/events?k={art['token']}")).status == 403
+            assert r.status == 404
+        assert (await c.get(f"/api/{other['id']}/events?k={art['token']}")).status == 404
         assert (await c.get(f"/a/{other['id']}?k={art['token']}")).status == 404
 
     run(with_client(store, go))
@@ -131,8 +131,8 @@ def hdr(art):
 def test_api_requires_the_token_header(store, art):
     async def go(c):
         url = f"/api/{art['id']}/db/get"
-        assert (await c.post(url, json={"path": "a/b"})).status == 403
-        assert (await c.post(url, json={"path": "a/b"}, headers={"x-artifact": "1"})).status == 403
+        assert (await c.post(url, json={"path": "a/b"})).status == 404
+        assert (await c.post(url, json={"path": "a/b"}, headers={"x-artifact": "1"})).status == 404
         r = await c.post(url, json={"path": "a/b"}, headers=hdr(art))
         assert r.status == 200 and (await r.json())["doc"]["exists"] is False
 
@@ -161,17 +161,63 @@ def test_db_roundtrip_over_http_and_agent_sees_it(store, art):
     assert store.get_doc(art["id"], "items/a")["data"] == {"done": True, "n": 2}
 
 
-def test_submit_triggers_status_and_hook(store, art):
+def test_save_with_notify_saves_notifies_and_calls_hook_once(store, art):
     calls = []
 
     async def go(c):
-        await c.post(
-            f"/api/{art['id']}/db/set", json={"path": "meta/status", "data": {"status": "submitted"}}, headers=hdr(art)
+        r = await c.post(
+            f"/api/{art['id']}/db/set",
+            json={"path": "form/answers", "data": {"status": "submitted"}, "notify": True},
+            headers=hdr(art),
         )
+        assert r.status == 200
+        assert (
+            await c.post(f"/api/{art['id']}/db/set", json={"path": "form/x", "data": {}}, headers=hdr(art))
+        ).status == 200
 
-    run(with_client(store, go, on_submit=calls.append))
-    assert store.get_artifact(art["id"])["status"] == "submitted"
+    run(with_client(store, go, on_notify=calls.append))
+    assert store.get_artifact(art["id"])["notified_at"]
+    assert store.get_doc(art["id"], "form/answers")["data"] == {"status": "submitted"}
+    assert [a["id"] for a in calls] == [art["id"]]  # the plain save did not notify
+
+
+def test_standalone_notify_calls_hook_and_sends_no_data(store, art):
+    calls = []
+
+    async def go(c):
+        r = await c.post(f"/api/{art['id']}/notify", json={}, headers=hdr(art))
+        assert r.status == 200 and await r.json() == {}
+
+    run(with_client(store, go, on_notify=calls.append))
+    assert store.get_artifact(art["id"])["notified_at"] and store.dump_docs(art["id"]) == {}
     assert [a["id"] for a in calls] == [art["id"]]
+
+
+def test_notify_flag_must_be_a_boolean_on_a_save(store, art):
+    async def go(c):
+        bad = await c.post(
+            f"/api/{art['id']}/db/set", json={"path": "a/b", "data": {}, "notify": "yes"}, headers=hdr(art)
+        )
+        assert bad.status == 400 and (await bad.json())["error"]["code"] == "invalid_argument"
+        wrong_op = await c.post(f"/api/{art['id']}/db/get", json={"path": "a/b", "notify": True}, headers=hdr(art))
+        assert wrong_op.status == 400
+        assert (
+            await c.post(f"/api/{art['id']}/db/set", json={"path": "a/b", "data": {}}, headers=hdr(art))
+        ).status == 200
+
+    run(with_client(store, go))
+    assert store.get_artifact(art["id"])["notified_at"] is None  # nothing was written by the rejected calls
+
+
+def test_notify_on_archived_artifact_is_gone_and_does_not_call_hook(store, art):
+    calls = []
+    store.archive(art["id"])
+
+    async def go(c):
+        assert (await c.post(f"/api/{art['id']}/notify", json={}, headers=hdr(art))).status == 404
+
+    run(with_client(store, go, on_notify=calls.append))
+    assert calls == []
 
 
 def test_revoke_kills_old_link_and_token(store, art):
@@ -179,7 +225,7 @@ def test_revoke_kills_old_link_and_token(store, art):
         old = dict(art)
         store.rotate_token(art["id"])
         assert (await c.get(f"/a/{art['id']}?k={old['token']}")).status == 404  # old link dead
-        assert (await c.post(f"/api/{art['id']}/db/get", json={"path": "a/b"}, headers=hdr(old))).status == 403
+        assert (await c.post(f"/api/{art['id']}/db/get", json={"path": "a/b"}, headers=hdr(old))).status == 404
 
     run(with_client(store, go))
 
@@ -297,7 +343,7 @@ def test_api_answers_cors_preflight_and_errors_carry_cors(store, art):
         assert "x-artifact" in r.headers["Access-Control-Allow-Headers"]
         assert "Access-Control-Allow-Credentials" not in r.headers
         bad = await c.post(f"/api/{art['id']}/db/get", json={"path": "a/b"}, headers={"Origin": "null"})
-        assert bad.status == 403 and bad.headers["Access-Control-Allow-Origin"] == "*"  # readable by the page
+        assert bad.status == 404 and bad.headers["Access-Control-Allow-Origin"] == "*"  # readable by the page
         ok = await c.post(f"/api/{art['id']}/db/get", json={"path": "a/b"}, headers={**hdr(art), "Origin": "null"})
         assert ok.status == 200 and ok.headers["Access-Control-Allow-Origin"] == "*"
 
@@ -486,8 +532,8 @@ def test_link_secret_off_keeps_the_api_token_so_artifacts_stay_isolated(store, a
     other = store.create_artifact("o", "<p/>", {"db": {}})
 
     async def go(c):
-        assert (await c.post(f"/api/{art['id']}/db/get", json={"path": "a/b"})).status == 403
-        assert (await c.post(f"/api/{other['id']}/db/get", json={"path": "a/b"}, headers=hdr(art))).status == 403
+        assert (await c.post(f"/api/{art['id']}/db/get", json={"path": "a/b"})).status == 404
+        assert (await c.post(f"/api/{other['id']}/db/get", json={"path": "a/b"}, headers=hdr(art))).status == 404
         assert (await c.post(f"/api/{art['id']}/db/get", json={"path": "a/b"}, headers=hdr(art))).status == 200
 
     with_mode(store, go, False)
@@ -518,7 +564,7 @@ def test_non_ascii_token_is_refused_like_any_wrong_token(store, art):
             await c.get(f"/a/{art['id']}", headers={"Cookie": f"ha_{art['id']}=é"}, allow_redirects=False)
         ).status == 404
         r = await c.post(f"/api/{art['id']}/db/get", json={"path": "a/b"}, headers={"x-artifact": "é"})
-        assert r.status == 403
-        assert (await c.get(f"/api/{art['id']}/events?k=%C3%A9")).status == 403
+        assert r.status == 404
+        assert (await c.get(f"/api/{art['id']}/events?k=%C3%A9")).status == 404
 
     run(with_client(store, go))

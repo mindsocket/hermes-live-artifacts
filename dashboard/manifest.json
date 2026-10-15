@@ -1,0 +1,11 @@
+{
+  "name": "hermes-live-artifacts",
+  "label": "Artifacts",
+  "description": "Browse, preview and manage live artifacts.",
+  "icon": "Puzzle",
+  "version": "0.1.0",
+  "tab": { "path": "/artifacts", "position": "end" },
+  "entry": "dist/index.js",
+  "css": "dist/style.css",
+  "api": "plugin_api.py"
+}

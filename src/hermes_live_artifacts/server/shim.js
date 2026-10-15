@@ -10,7 +10,7 @@
   // pool, so un-awaited back-to-back set()s could otherwise land out of order (last-writer-wins would
   // then pick an arbitrary writer). Reads/queries are not queued.
   let writeChain = Promise.resolve();
-  const WRITE_OPS = new Set(["/db/set", "/db/update", "/db/delete", "/db/acquire"]);
+  const WRITE_OPS = new Set(["/db/set", "/db/update", "/db/delete", "/db/acquire", "/notify"]);
   function call(path, body) {
     if (!WRITE_OPS.has(path)) return rawCall(path, body);
     const p = writeChain.then(() => rawCall(path, body));
@@ -34,31 +34,40 @@
 
   // ------------------------------------------------------------------ db
   const meta = (pending) => ({ fromCache: false, hasPendingWrites: !!pending });
+  // `notify` is an option on a save, not a separate write: a save and its notification travel in one request.
+  // Anything but a boolean is a mistake, so it throws rather than quietly saving without notifying.
+  const notifyOpt = (opts) => {
+    if (opts === undefined) return {};
+    if (typeof opts !== "object" || opts === null || typeof opts.notify !== "boolean") {
+      throw new TypeError("options must be { notify: true } or { notify: false }");
+    }
+    return { notify: opts.notify };
+  };
   const docSnap = (d) => Object.freeze({
     id: d.id, exists: !!d.exists, data: () => (d.exists ? Object.freeze(d.data) : undefined), metadata: meta(false),
   });
-  const segs = (p, kind) => {
-    if (typeof p !== "string" || !p) throw new TypeError("path must be a non-empty string");
-    const s = p.split("/");
-    for (const x of s) if (!x || x === "." || x === ".." || !/^[A-Za-z0-9_\-.~:@+]+$/.test(x)) throw new TypeError(`bad path segment '${x}'`);
-    if (s.length > 16) throw new TypeError("path has more than 16 segments");
-    if (kind === "doc" && s.length % 2) throw new TypeError(`document path needs an even number of segments (got ${s.length})`);
-    if (kind === "collection" && s.length % 2 === 0) throw new TypeError(`collection path needs an odd number of segments (got ${s.length})`);
-    return s;
-  };
-
-  // one SSE stream shared by every listener on the page; each change event triggers refetch.
+  const querySnap = (docs, changes) => Object.freeze({
+    docs, size: docs.length, empty: !docs.length, metadata: meta(false),
+    docChanges: () => changes || docs.map((doc, i) => ({ type: "added", doc, oldIndex: -1, newIndex: i })),
+  });
+  // One SSE stream shared by every listener on the page; each change event triggers a refetch. While the
+  // stream is down the browser keeps retrying, and a slow poll covers the gap.
   const listeners = new Set();
+  const kick = () => listeners.forEach((l) => l.refresh());
+  const POLL_WHILE_DOWN_MS = 30000;
   let es = null, pollTimer = null;
   function ensureStream() {
-    if (es || pollTimer) return;
-    const kick = () => listeners.forEach((l) => l.refresh());
-    try {
-      es = new EventSource(`${BASE}/events?k=${encodeURIComponent(CFG.token)}`);
-      es.addEventListener("change", kick);
-      es.onerror = () => { /* browser auto-reconnects; poll as fallback */ };
-    } catch (e) { /* ignore */ }
-    pollTimer = setInterval(kick, 30000);
+    if (es) return;
+    es = new EventSource(`${BASE}/events?k=${encodeURIComponent(CFG.token)}`);
+    es.addEventListener("change", kick);
+    es.onopen = () => {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    };
+    es.onerror = () => {
+      console.warn("[artifact] event stream lost; polling until it reconnects");
+      if (!pollTimer) pollTimer = setInterval(kick, POLL_WHILE_DOWN_MS);
+    };
   }
   function listen(refresh) {
     const l = { refresh };
@@ -73,8 +82,7 @@
       limit: (n) => makeQuery(path, filters, orderBy, n),
       async get() {
         const j = await call("/db/query", { path, filters, orderBy, limit: lim });
-        const docs = j.docs.map(docSnap);
-        return Object.freeze({ docs, size: docs.length, empty: !docs.length, metadata: meta(false), docChanges: () => docs.map((doc, i) => ({ type: "added", doc, oldIndex: -1, newIndex: i })) });
+        return querySnap(j.docs.map(docSnap));
       },
       onSnapshot(next, error) {
         let prev = null, dead = false, busy = false, again = false;
@@ -99,9 +107,12 @@
             if (prev) prev.order.forEach((id, i) => { if (!byId.has(id)) changes.push({ type: "removed", doc: prev.byId.get(id).snap, oldIndex: i, newIndex: -1 }); });
             if (!prev || changes.length) {
               prev = { byId, order: docs.map((d) => d.id) };
-              next(Object.freeze({ docs, size: docs.length, empty: !docs.length, metadata: meta(false), docChanges: () => changes }));
+              next(querySnap(docs, changes));
             }
-          } catch (e) { if (error) { dead = true; error(e); } }
+          } catch (e) {
+            // With an error callback the listener stops and reports; without one it logs and the next change still lands.
+            if (error) { dead = true; error(e); } else console.error("[artifact] snapshot failed", e);
+          }
           finally { busy = false; if (again) { again = false; run(); } }
         };
         const stop = listen(run);
@@ -112,12 +123,11 @@
   }
 
   function docRef(path) {
-    segs(path, "doc");
     const ref = {
       id: path.split("/").pop(), path,
       async get() { const j = await call("/db/get", { path }); return docSnap(j.doc); },
-      async set(data) { await call("/db/set", { path, data }); },
-      async update(data) { await call("/db/update", { path, data }); },
+      async set(data, opts) { await call("/db/set", { path, data, ...notifyOpt(opts) }); },
+      async update(data, opts) { await call("/db/update", { path, data, ...notifyOpt(opts) }); },
       async delete() { await call("/db/delete", { path }); },
       async acquire(o) { return (await call("/db/acquire", { path, ...o })).result; },
       collection: (p) => collRef(`${path}/${p}`),
@@ -129,16 +139,17 @@
             const j = await call("/db/get", { path });
             const raw = JSON.stringify(j.doc);
             if (raw !== last) { last = raw; if (!dead) next(docSnap(j.doc)); }
-          } catch (e) { if (error) { dead = true; error(e); } }
+          } catch (e) {
+            if (error) { dead = true; error(e); } else console.error("[artifact] snapshot failed", e);
+          }
         });
         return () => { dead = true; stop(); };
       },
     };
     return ref;
   }
-  const genId = () => (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, "").slice(0, 20) : Math.random().toString(36).slice(2, 22));
+  const genId = () => Array.from(crypto.getRandomValues(new Uint8Array(10)), (b) => b.toString(16).padStart(2, "0")).join("");
   function collRef(path) {
-    segs(path, "collection");
     return Object.assign(makeQuery(path), {
       path,
       doc: (id) => docRef(`${path}/${id || genId()}`),
@@ -181,12 +192,11 @@
     state: async (n) => (n === undefined ? granted() : (CFG.caps.includes(n) ? "granted" : "unavailable")),
     request: async () => granted(), manage: async () => {},
   });
-  const notGranted = () => { throw err("not_granted", "not available in hermes-live-artifacts"); };
-  const stub = Object.freeze(new Proxy({}, { get: () => async () => notGranted() }));
+  const stub = Object.freeze(new Proxy({}, { get: () => async () => { throw err("not_granted", "not available in hermes-live-artifacts"); } }));
 
   // ------------------------------------------------------------------ mcp (callTool + server(); no watch/list/describe)
   // The page's manifest rides in __ARTIFACT__.mcp; the server re-checks every call against the stored manifest.
-  const removed = () => Promise.reject(err("capability_removed", "not implemented in hermes-live-artifacts"));
+  const removed = (name) => () => Promise.reject(err("capability_removed", `${name} is not implemented in hermes-live-artifacts`));
   const mcpCall = async (server, tool, input, opts) => {
     if (typeof server !== "string" || typeof tool !== "string") throw err("bad_request", "server and tool must be strings");
     if (opts && opts.signal && opts.signal.aborted) throw err("cancelled", "call aborted");
@@ -200,7 +210,7 @@
       if (!ent) throw err("server_not_connected", "no server by that name is declared in this artifact");
       return Object.freeze(Object.fromEntries(ent.tools.map((t) => [t, async (input, o) => (await mcpCall(name, t, input, o)).payload])));
     },
-    listTools: removed, describeTool: removed, invalidate: removed, watchTool: () => { throw err("capability_removed", "watchTool is not implemented in hermes-live-artifacts"); },
+    listTools: removed("listTools"), describeTool: removed("describeTool"), invalidate: removed("invalidate"), watchTool: removed("watchTool"),
   });
 
   // ------------------------------------------------------- external link opening
@@ -319,10 +329,8 @@
 
   const ns = { db, user, downloads, permissions, mcp, artifact: stub, self: stub };
   const cache = new Map();
-  // submit helper: sugar over the reserved doc meta/status; either spelling works.
-  const submit = async (extra) => {
-    await db.doc("meta/status").set({ ...(extra || {}), status: "submitted", submittedAt: new Date().toISOString() });
-  };
+  // Tells the agent the data is ready for review. Carries no payload: save the data first, then notify.
+  const notify = async () => { await call("/notify", {}); };
   window.claude = Object.freeze({
     use(name) {
       if (cache.has(name)) return cache.get(name);
@@ -331,6 +339,6 @@
       if (ok) cache.set(name, p);
       return p;
     },
-    submit,
+    notify,
   });
 })();

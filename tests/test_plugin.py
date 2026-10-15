@@ -80,7 +80,7 @@ def test_resolve_host_passthrough_and_tailscale(monkeypatch):
         plug.resolve_host("tailscale")
 
 
-# ---------------------------------------------------------------- submit: event + push to the creating session
+# ---------------------------------------------------------------- notify: event + notice to the creating session
 def make(store, **kw):
     a = store.create_artifact("Trip review", "<p>x</p>", {"db": {}}, **kw)
     store.set_doc(a["id"], "form/state", {"pick": "b", "note": "hello"})
@@ -92,62 +92,64 @@ def test_push_is_a_notice_without_page_chosen_strings(store):
     as an injected message; the agent reads it with artifact_read instead."""
     a = make(store, origin_session="agent:main:telegram:group:1:2")
     sent, events = [], []
-    plug.make_waker(store, lambda c, **k: sent.append((c, k)) or True, lambda e, p: events.append((e, p)))(a)
-    assert events == [("submitted", {"id": a["id"], "title": "Trip review"})]
+    plug.make_notifier(store, lambda c, **k: sent.append((c, k)) or True, lambda e, p: events.append((e, p)))(a)
+    assert events == [("notified", {"id": a["id"], "title": "Trip review"})]
     ((content, kw),) = sent
     assert kw == {"session_key": "agent:main:telegram:group:1:2"}
+    assert content.startswith("[artifact notified]")
     assert a["id"] in content and "1 document" in content and "artifact_read" in content
     assert "Trip review" not in content and '"pick"' not in content and "hello" not in content
     assert a["token"] not in content and "form" not in content
 
 
-def test_push_fires_once_per_round_then_again_after_html_update(store):
+def test_repeat_notifies_inside_the_cooldown_push_once(store, monkeypatch):
     a = make(store, origin_session="s1")
+    now = {"t": 1000.0}
+    monkeypatch.setattr(plug.time, "monotonic", lambda: now["t"])
     sent = []
-    hook = plug.make_waker(store, lambda c, **k: sent.append(c) or True)
+    hook = plug.make_notifier(store, lambda c, **k: sent.append(c) or True)
     hook(a)
-    hook(a)
-    hook(a)  # double tap / retries
+    now["t"] += plug.NOTIFY_COOLDOWN_S - 1
+    hook(a)  # a page bug notifying in a loop
     assert len(sent) == 1
-    store.update_artifact(a["id"], html="<p>round two</p>")
+    now["t"] += 1
     hook(a)
     assert len(sent) == 2
 
 
 def test_no_push_without_origin_session_or_when_wake_off(store):
     sent = []
-    hook = plug.make_waker(store, lambda c, **k: sent.append(c) or True)
+    hook = plug.make_notifier(store, lambda c, **k: sent.append(c) or True)
     hook(make(store))  # created from CLI/cron: no session
     hook(make(store, origin_session="s1", wake=False))  # explicit opt-out
     assert sent == []
 
 
-def test_failed_delivery_releases_claim_so_retry_can_succeed(store):
+def test_failed_delivery_is_not_counted_so_the_next_notify_can_retry(store):
     a = make(store, origin_session="s1")
     ok = {"v": False}
     sent = []
-    hook = plug.make_waker(store, lambda c, **k: sent.append(c) or ok["v"])
+    hook = plug.make_notifier(store, lambda c, **k: sent.append(c) or ok["v"])
     hook(a)
     ok["v"] = True
-    hook(a)
+    hook(a)  # immediately after a failure: must still try
     assert len(sent) == 2
 
 
-def test_inject_exception_is_contained_and_releases_claim(store):
+def test_inject_exception_is_contained(store):
     a = make(store, origin_session="s1")
 
     def boom(*_a, **_k):
         raise RuntimeError("gateway gone")
 
-    plug.make_waker(store, boom)(a)  # must not raise
-    assert store.claim_wake(a["id"]) is True
+    plug.make_notifier(store, boom)(a)  # must not raise
 
 
 def test_no_inject_available_still_emits_event(store):
     a = make(store, origin_session="s1")
     events = []
-    plug.make_waker(store, None, lambda e, p: events.append(e))(a)
-    assert events == ["submitted"]
+    plug.make_notifier(store, None, lambda e, p: events.append(e))(a)
+    assert events == ["notified"]
 
 
 def test_emit_failure_does_not_block_push(store):
@@ -157,16 +159,15 @@ def test_emit_failure_does_not_block_push(store):
     def bad_emit(*_a, **_k):
         raise RuntimeError("no subscribers")
 
-    plug.make_waker(store, lambda c, **k: sent.append(c) or True, bad_emit)(a)
+    plug.make_notifier(store, lambda c, **k: sent.append(c) or True, bad_emit)(a)
     assert len(sent) == 1
 
 
-def test_large_payload_does_not_reach_the_push(store):
-    """Old behaviour truncated big payloads; the notice carries no data at all, whatever the size."""
+def test_large_saved_payload_does_not_reach_the_push(store):
     a = make(store, origin_session="s1")
     store.set_doc(a["id"], "big/x", {"blob": "y" * 50000})
     sent = []
-    plug.make_waker(store, lambda c, **k: sent.append(c) or True)(a)
+    plug.make_notifier(store, lambda c, **k: sent.append(c) or True)(a)
     assert "artifact_read" in sent[0] and "y" * 100 not in sent[0] and len(sent[0]) < 500
 
 
@@ -175,9 +176,9 @@ def test_register_wires_inject_message(monkeypatch, tmp_path):
 
     monkeypatch.setattr(plug, "store", lambda: _Store(tmp_path))
     seen = {}
-    real = plug.make_waker
+    real = plug.make_notifier
     monkeypatch.setattr(
-        plug, "make_waker", lambda s, inject, emit=None: seen.update(inject=inject) or real(s, inject, emit)
+        plug, "make_notifier", lambda s, inject, emit=None: seen.update(inject=inject) or real(s, inject, emit)
     )
     ctx = FakeCtx({})
     ctx.inject_message = lambda *a, **k: True
@@ -272,7 +273,7 @@ def test_register_tools_only_when_not_listening(monkeypatch, tmp_path):
     monkeypatch.setattr(plug, "store", lambda: _Store(tmp_path))
     ctx = FakeCtx({"listen_process": "none"})
     plug.register(ctx)
-    assert len(ctx.tools) == 9 and "capabilities" in ctx.skills and ctx.spawned == []
+    assert len(ctx.tools) == 8 and "capabilities" in ctx.skills and ctx.spawned == []
 
 
 def test_register_all_skills_with_description(monkeypatch, tmp_path):
@@ -389,26 +390,6 @@ def test_invalid_settings_raise():
         plug.read_settings(lambda k, d: {"link_secret": "bogus"}.get(k, d))
     with pytest.raises(ValueError, match="listen_process"):
         plug.read_settings(lambda k, d: {"listen_process": "bogus"}.get(k, d))
-
-
-def test_rotate_link_revokes_and_returns_new_link(tools_store):
-    t.configure("https://h.ts.net", link_secret=True)
-    a = json.loads(t.artifact_create({"title": "x", "html": "<p/>"}))
-    old = t.store().get_artifact(a["id"])
-    out = json.loads(t.artifact_rotate_link({"id": a["id"]}))
-    assert out["ok"] and "?k=" in out["link"] and a["id"] in out["link"]
-    assert out["link"] != a["link"]
-    fresh = t.store().get_artifact(a["id"])
-    assert fresh["token"] != old["token"]  # old link, cookie and open streams now fail auth
-
-
-def test_rotate_link_refuses_in_never_mode(tools_store):
-    t.configure("https://h.ts.net", link_secret=False)
-    a = json.loads(t.artifact_create({"title": "x", "html": "<p/>"}))
-    before = t.store().get_artifact(a["id"])
-    out = json.loads(t.artifact_rotate_link({"id": a["id"]}))
-    assert out["ok"] is False and "never" in out["error"] and "archive" in out["error"]
-    assert t.store().get_artifact(a["id"])["token"] == before["token"]  # nothing rotated
 
 
 def test_links_follow_the_setting_and_legacy_ids_keep_the_secret(tools_store):

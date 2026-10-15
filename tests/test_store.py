@@ -1,5 +1,4 @@
 import sqlite3
-import time
 
 import pytest
 
@@ -150,11 +149,42 @@ def test_acquire_expiry(store, aid, monkeypatch):
     assert store.acquire(aid, "l/x", "b", 1000)["acquired"]
 
 
-def test_submit_convention_sets_status(store, aid):
-    assert store.get_artifact(aid)["status"] == "active"
-    store.set_doc(aid, "meta/status", {"status": "submitted"})
+def test_plain_save_does_not_notify(store, aid):
+    store.set_doc(aid, "a/b", {"v": 1})
+    assert store.get_artifact(aid)["notified_at"] is None
+
+
+def test_save_with_notify_records_the_time_in_the_same_write(store, aid):
+    store.set_doc(aid, "meta/status", {"status": "submitted"}, notify=True)
     a = store.get_artifact(aid)
-    assert a["status"] == "submitted" and a["submitted_at"]
+    assert a["notified_at"] and a["status"] == "active"
+    assert store.dump_docs(aid)["meta/status"] == {"status": "submitted"}
+
+
+def test_update_with_notify(store, aid):
+    store.set_doc(aid, "a/b", {"v": 1})
+    store.update_doc(aid, "a/b", {"w": 2}, notify=True)
+    assert store.get_artifact(aid)["notified_at"] and store.get_doc(aid, "a/b")["data"] == {"v": 1, "w": 2}
+
+
+def test_notify_records_time_and_bumps_change_seq(store, aid):
+    seq = store.change_seq()
+    a = store.notify(aid)
+    assert a["notified_at"] and store.change_seq() > seq
+    assert store.dump_docs(aid) == {}
+
+
+def test_notify_on_archived_is_revoked(store, aid):
+    store.archive(aid)
+    with pytest.raises(DbError) as e:
+        store.notify(aid)
+    assert e.value.code == "revoked"
+
+
+def test_notify_unknown_artifact_is_revoked(store):
+    with pytest.raises(DbError) as e:
+        store.notify("nope")
+    assert e.value.code == "revoked"
 
 
 def test_update_artifact_in_place_keeps_data(store, aid):
@@ -172,20 +202,6 @@ def test_archive_revokes_and_blocks_writes(store, aid):
     assert a["status"] == "archived" and a["token"] != tok
     assert code(store.set_doc, aid, "c/d", {"v": 1}) == "revoked"
     assert store.dump_docs(aid) == {}
-
-
-def test_archive_due_respects_pin_and_submit(store):
-    day = 86400
-    old = store.create_artifact("old", "x")["id"]
-    pinned = store.create_artifact("pin", "x", pinned=True)["id"]
-    fresh = store.create_artifact("fresh", "x")["id"]
-    now = time.time() + 15 * day
-    store.set_doc(
-        fresh, "meta/status", {"status": "submitted"}
-    )  # submitted ~now(real) => not due at +15d? it IS 15d old
-    due = store.archive_due(14, now=now)
-    assert set(due) == {old, fresh}
-    assert store.get_artifact(pinned)["status"] != "archived"
 
 
 def test_rotate_token(store, aid):
