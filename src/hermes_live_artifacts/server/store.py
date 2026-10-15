@@ -244,9 +244,18 @@ class Store:
             pass
         c = sqlite3.connect(self.path, timeout=10)
         try:
-            c.execute("PRAGMA journal_mode=WAL")  # persists in the db file, so _tx() needn't repeat it
-            c.executescript(SCHEMA)
-            c.commit()
+            # First-start races (every Hermes process loads the plugin) can hit "database is locked"
+            # while one connection sets journal_mode while another runs executescript; retry briefly.
+            for attempt in range(5):
+                try:
+                    c.execute("PRAGMA journal_mode=WAL")  # persists in the db file, so _tx() needn't repeat it
+                    c.executescript(SCHEMA)
+                    c.commit()
+                    break
+                except sqlite3.OperationalError:
+                    if attempt == 4:
+                        raise
+                    time.sleep(0.05 * (attempt + 1))
         finally:
             c.close()
 

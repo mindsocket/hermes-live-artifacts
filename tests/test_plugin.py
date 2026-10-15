@@ -100,7 +100,7 @@ def test_push_is_a_notice_without_page_chosen_strings(store):
     assert kw == {"session_key": "agent:main:telegram:group:1:2"}
     assert a["id"] in content and "1 document" in content and "artifact_read" in content
     assert "Trip review" not in content and '"pick"' not in content and "hello" not in content
-    assert a["token"] not in content and "Roger" not in content
+    assert a["token"] not in content and "form" not in content
 
 
 def test_push_fires_once_per_round_then_again_after_html_update(store):
