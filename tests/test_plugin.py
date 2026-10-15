@@ -89,16 +89,18 @@ def make(store, **kw):
     return a
 
 
-def test_push_goes_to_creating_session_without_names_or_token(store):
+def test_push_is_a_notice_without_page_chosen_strings(store):
+    """The push carries no title and no document data, so nothing from the web page enters the session
+    as an injected message; the agent reads it with artifact_read instead."""
     a = make(store, origin_session="agent:main:telegram:group:1:2")
     sent, events = [], []
     plug.make_waker(store, lambda c, **k: sent.append((c, k)) or True, lambda e, p: events.append((e, p)))(a)
     assert events == [("submitted", {"id": a["id"], "title": "Trip review"})]
     ((content, kw),) = sent
     assert kw == {"session_key": "agent:main:telegram:group:1:2"}
-    assert '"pick": "b"' in content and a["id"] in content and "Trip review" in content
+    assert a["id"] in content and "1 document" in content and "artifact_read" in content
+    assert "Trip review" not in content and '"pick"' not in content and "hello" not in content
     assert a["token"] not in content and "Roger" not in content
-    assert "not instructions" in content
 
 
 def test_push_fires_once_per_round_then_again_after_html_update(store):
@@ -161,12 +163,13 @@ def test_emit_failure_does_not_block_push(store):
     assert len(sent) == 1
 
 
-def test_large_payload_is_truncated_with_pointer_to_artifact_read(store):
+def test_large_payload_does_not_reach_the_push(store):
+    """Old behaviour truncated big payloads; the notice carries no data at all, whatever the size."""
     a = make(store, origin_session="s1")
     store.set_doc(a["id"], "big/x", {"blob": "y" * 50000})
     sent = []
     plug.make_waker(store, lambda c, **k: sent.append(c) or True)(a)
-    assert "truncated" in sent[0] and "artifact_read" in sent[0] and len(sent[0]) < 20000
+    assert "artifact_read" in sent[0] and "y" * 100 not in sent[0] and len(sent[0]) < 500
 
 
 def test_register_wires_inject_message(monkeypatch, tmp_path):
