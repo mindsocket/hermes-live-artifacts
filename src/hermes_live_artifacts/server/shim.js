@@ -217,6 +217,11 @@
   // Non-http(s) schemes (obsidian:, mailto:, …) are refused on first sight with an override banner;
   // an explicit "Open anyway" remembers scheme+host for the page's lifetime.
   const allowedSchemes = new Set();
+  // The native open, captured before the override below: openLink must not call window.open, which this
+  // shim replaces with a wrapper into openLink — calling it from inside openLink recurses until the
+  // stack overflows, and every link dies with "Maximum call stack size exceeded" before any popup opens
+  // (measured live, 2026-10-16).
+  const nativeOpen = window.open.bind(window);
   function openLink(url, force) {
     if (typeof url !== "string" || !url) return false;
     if (NEVER_OPENABLE.test(url)) {
@@ -225,7 +230,7 @@
       return false;
     }
     if (OPENABLE.test(url)) {
-      window.open(url, "_blank", "noopener");
+      nativeOpen(url, "_blank", "noopener");
       return true;
     }
     let key;
@@ -234,7 +239,7 @@
       key = `${(u.scheme || "").toLowerCase()}:${(u.hostname || "").toLowerCase()}`;
     } catch (_) { return false; }
     if (force || allowedSchemes.has(key)) {
-      window.open(url, "_blank", "noopener");
+      nativeOpen(url, "_blank", "noopener");
       return true;
     }
     warnRefused(url, key);
@@ -276,8 +281,7 @@
   document.addEventListener(
     "click",
     (e) => {
-      // Modifier clicks too: the sandboxed frame has no popup flags, so the browser could not honour
-      // cmd/ctrl/middle-click auxiliary opening anyway — route it through the shell like a plain click.
+      // Modifier clicks too: route through openLink like a plain click so scheme guards apply.
       if (e.defaultPrevented) return;
       const a = e.target.closest && e.target.closest("a[href]");
       if (!a) return;
@@ -315,7 +319,7 @@
 
   const ns = { db, user, downloads, permissions, mcp, artifact: stub, self: stub };
   const cache = new Map();
-  // submit helper (open item 3): sugar over the reserved doc meta/status; either spelling works.
+  // submit helper: sugar over the reserved doc meta/status; either spelling works.
   const submit = async (extra) => {
     await db.doc("meta/status").set({ ...(extra || {}), status: "submitted", submittedAt: new Date().toISOString() });
   };
