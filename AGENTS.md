@@ -49,12 +49,8 @@ docs/compatibility.md before touching `shim.js` or the skills, and docs/architec
 - Keep claims about behaviour tied to a test or a measurement.
 - Do not commit or push unless asked. **Restarting the gateway is a user-approved action** — it drops in-flight
   runs and briefly takes the listener down — so never do it as a side effect of other work; ask first.
-- Dev loop for running code (the listener runs the installed copy, not this checkout): after a commit,
-  1. `hermes plugins update hermes-live-artifacts` (installs the current tree; the plugin installs by copy, so an
-     edit or commit alone changes nothing at runtime),
-  2. `hermes gateway restart` (only with the user's go-ahead),
-  3. verify the new code is live, e.g. `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:47318/healthz`
-     (200) or probe any route you just added.
+- Dev loop for running code (the listener runs the installed copy, not this checkout): after a commit, run
+  `scripts/deploy_dev` — it installs the committed tree and restarts the gateway with confirmation first.
 
 ## Testing notes
 

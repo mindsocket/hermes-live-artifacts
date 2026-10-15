@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Dev deploy: install the current committed tree into Hermes and restart the gateway.
+# The listener runs the installed copy, not this checkout, so changes are invisible until this runs.
+# The gateway restart drops in-flight runs; pass --yes to skip the confirmation.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+if [[ "${1:-}" != "--yes" ]]; then
+  read -r -p "Restart the hermes gateway? (in-flight runs are dropped) [y/N] " a
+  [[ "$a" == "y" || "$a" == "Y" ]] || { echo "aborted"; exit 1; }
+fi
+
+git diff --quiet --cached || { echo "staged changes exist; commit first"; exit 1; }
+dirty=$(git diff --name-only; git ls-files --others --exclude-standard)
+[[ -z "$dirty" ]] || echo "note: uncommitted/untracked files not included: $(echo "$dirty" | head -5 | tr '\n' ' ')"
+
+hermes plugins update hermes-live-artifacts
+hermes gateway restart
+
+# wait for the listener to come back
+for _ in $(seq 1 30); do
+  code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:47318/healthz" || true)
+  [[ "$code" == "200" ]] && { echo "listener is up (healthz 200)"; exit 0; }
+  sleep 1
+done
+echo "listener did not return 200 within 30s — check 'hermes gateway status'" >&2
+exit 1
