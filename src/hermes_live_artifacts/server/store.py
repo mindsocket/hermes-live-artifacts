@@ -233,11 +233,14 @@ class Store:
         self.path = self.dir / "artifacts.db"
         self._key = self._get_installation_key()
         # executescript() commits implicitly, so it can't run inside _tx()'s BEGIN IMMEDIATE.
-        if not self.path.exists():
+        try:
             # A fresh db gets 0600 from the start; an existing one keeps whatever it had (re-chmodding a
-            # live multi-connection db is racy, and the 0700 directory already gates it).
+            # live multi-connection db is racy, and the 0700 directory already gates it). O_EXCL so two
+            # processes starting together cannot clobber each other's file.
             fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             os.close(fd)
+        except FileExistsError:
+            pass
         c = sqlite3.connect(self.path, timeout=10)
         try:
             c.execute("PRAGMA journal_mode=WAL")  # persists in the db file, so _tx() needn't repeat it

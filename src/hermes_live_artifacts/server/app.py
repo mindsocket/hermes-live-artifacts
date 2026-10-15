@@ -36,6 +36,9 @@ from .store import SUBMIT_DOC, DbError, Store, needs_link_secret
 
 log = logging.getLogger("hermes_live_artifacts")
 SHIM = (Path(__file__).parent / "shim.js").read_text()
+# POST bodies: one API call carries a path plus one document (256 KiB cap in the validator); anything
+# much larger is a mistake or an attack, so answer 413 before reading it.
+MAX_BODY_BYTES = 300 * 1024
 # The reset every page fragment is wrapped in. Pages rely on it: 14px system font, zero body margin, safe-area padding on :root, and a
 # [hidden] rule that beats author display values. We add no design tokens of our own.
 RESET_CSS = (
@@ -249,10 +252,20 @@ def make_app(
     async def api(request: web.Request) -> web.StreamResponse:
         aid, op = request.match_info["aid"], request.match_info["op"]
         a = authed(request.headers.get("x-artifact", ""), aid)
+        if request.content_length is not None and request.content_length > MAX_BODY_BYTES:
+            return web.json_response(
+                {"error": {"code": "payload_too_large", "message": f"request body exceeds {MAX_BODY_BYTES} bytes"}},
+                status=413,
+            )
         try:
             body = await request.json()
         except Exception:
             return web.json_response({"error": {"code": "invalid_argument", "message": "bad json"}}, status=400)
+        if not isinstance(body, dict):
+            # A non-object body (list, string, number) would 500 later in _dispatch; reject it here.
+            return web.json_response(
+                {"error": {"code": "invalid_argument", "message": "request body must be a JSON object"}}, status=400
+            )
         if op == "mcp/call":
             try:
                 return web.json_response({"result": await asyncio.to_thread(mcp_mod.call_tool, a, body, mcp_call)})

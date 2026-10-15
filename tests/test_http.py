@@ -202,6 +202,19 @@ def test_sse_emits_change_event(store, art):
 
 
 # ---------------------------------------------------------------- sandbox, CORS, clean URL
+def test_non_object_body_is_400_and_oversize_is_413(store, art):
+    async def go(c):
+        url = f"/api/{art['id']}/db/set"
+        for raw in ("[1,2]", '"x"', "3", "null"):
+            r = await c.post(url, data=raw, headers={**hdr(art), "content-type": "application/json"})
+            assert r.status == 400, (raw, r.status)
+        r = await c.post(url, data='{"path":"a/b","data":{"x":"' + "y" * 400000 + '"}}',
+                         headers={**hdr(art), "content-type": "application/json"})
+        assert r.status == 413
+
+    run(with_client(store, go))
+
+
 def test_page_is_sandboxed_with_opaque_origin(store, art):
     async def go(c):
         r = await c.get(f"/a/{art['id']}/frame?k={art['token']}")
