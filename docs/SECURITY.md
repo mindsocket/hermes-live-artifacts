@@ -27,7 +27,7 @@ This document outlines the security architecture, threat model, trust boundaries
 | **Host Compromise via Rogue MCP Calls** | Critical | **Two gates**: this plugin refuses any server/tool the artifact's manifest does not declare. The operator's `mcp_allowlist` is enforced by Hermes inside `ctx.call_mcp`; this repo's tests cover only the plugin's mapping of Hermes' refusal, not Hermes' own check. The allowlist is per server, so an agent-written manifest can declare any tool on an allowed server. | `test_mcp_refuses_undeclared_server_or_tool_without_calling`<br>`test_mcp_operator_allowlist_refusal_maps_to_blocked_by_policy` |
 | **Prompt Injection via Artifact Submissions** | High | **Mitigation, not prevention**: the pushed message labels the JSON as user-supplied data, not instructions, and the data is JSON-encoded so it cannot close its code fence. That label is advice to the model, not a boundary. Anyone holding a link can submit, and in `never` mode that is anyone who has seen the URL. | `test_push_goes_to_creating_session_without_names_or_token` |
 | **Network Exfiltration via In-Page Scripts** | High | **Partial**: CSP `connect-src 'self'` stops `fetch`, XHR, WebSocket and EventSource to other hosts, and `object-src 'none'` plus the Permissions-Policy close other paths. It does **not** stop navigation: the sandbox allows popups that escape it, so a page can open or navigate to an external URL carrying data, and WebRTC is not covered by CSP. Treat page code as able to send out anything it can read, including MCP results. See Known gaps. | `test_page_needs_the_token_and_embeds_it` (checks the CSP header only) |
-| **Token Exposure in Browser History / Referrers** | Medium | **`always` mode**: `?k=<token>` is exchanged for a `SameSite=Lax`, `HttpOnly` cookie scoped to `Path=/a/<id>` (90 days) and removed from the address bar. The page's API token is separate and appears in the SSE URL (`/events?k=`), so it can reach access logs. `never` mode has no `?k=` on page links. | `test_link_exchange_redirects_to_clean_url_with_path_scoped_cookie` |
+| **Token Exposure in Browser History / Referrers** | Medium | **`always` mode**: `?k=<token>` is exchanged for a `SameSite=Lax`, `HttpOnly` cookie scoped to `Path=/a/<id>` (90 days) and removed from the address bar. The page's API token is separate and appears in the SSE URL (`/events?k=`); the listener's access log is off, so it reaches no log (known gap 3). `never` mode has no `?k=` on page links. | `test_link_exchange_redirects_to_clean_url_with_path_scoped_cookie` |
 
 ---
 
@@ -79,16 +79,16 @@ The API answers `Access-Control-Allow-Origin: *` and answers every preflight wit
 
 ## 4. Known gaps
 
-Found by an independent audit on 2026-10-15 and not yet fixed. Evidence labels: measured = run against the code, observed = read in the code, hypothesis = not tested.
+From an independent audit on 2026-10-15. Items 1–2 were fixed the same day; items 3–8 are known and accepted. Evidence labels: measured = run against the code, observed = read in the code, hypothesis = not tested.
 
-1. **Data can leave by navigation or popup** (medium; high if a sensitive read-only MCP server is allowlisted). `connect-src` does not govern navigation, and the sandbox allows popups that escape it. Planned fix: serve `/a/<id>` as a server-owned shell with the artifact in an iframe that has no popups or top navigation. Observed for the CSP; the browser behaviour is a hypothesis.
-2. **A link holder can inject text into the agent session** (medium). The submit push is not a trusted channel; see the prompt-injection row. Planned: push only a notice and let the agent read the data with `artifact_read`.
-3. **The API token is in the SSE URL** and aiohttp's default access log records query strings (observed; whether lines reach a file is a hypothesis).
+1. ~~**Data can leave by navigation or popup**~~ **Fixed**: `/a/<id>` is now a server-owned shell with the artifact in an iframe (`frame-src 'self'`) whose sandbox has no popup flags, so a page cannot navigate the top level or open an escaping popup. WebRTC remains outside CSP's reach (see the exfiltration row). Observed for the CSP; the browser behaviour is a hypothesis — verify manually in a browser.
+2. ~~**A link holder can inject text into the agent session**~~ **Fixed**: the submit push is now a notice carrying only the artifact id and a document count — no title, no page-chosen strings. The agent reads the data with `artifact_read`, as a tool result.
+3. **The API token is in the SSE URL** (accepted): `EventSource` cannot send headers, so the token rides in the `/events?k=` query. The listener's aiohttp access log is disabled (`AppRunner(access_log=None)`), so the token reaches no log; the only remaining exposure is a proxy in front of the listener, which the single-user, loopbound deployment does not have. Changing `shim.js` to a hand-parsed fetch stream was deferred (issue #9's territory, needs manual phone/desktop checks).
 4. **The database and data directory are created with default permissions** (0644 database measured), so other local users can read artifact data. Single-user machines are not affected in practice.
 5. **No connection or size caps on the event stream and storage** (observed): a page holding a token can load the gateway process.
 6. **No tool rotates a link**; archive is the only revocation (issue #6).
-7. **The event stream's change counter is global** (measured), so one artifact sees when others are written. `/healthz` exposes it without auth.
-8. **`frame-ancestors` allows any `*.ts.net` host**, and there is no `Host` header check (measured: a foreign `Host` returns 200).
+7. **The event stream's change counter is global** (measured), so one artifact sees when others are written. `/healthz` exposes it without auth. Accepted: no data leaks, only write-activity timing.
+8. **No `Host` header check** (measured: a foreign `Host` returns 200). Accepted: tailnet hostnames vary and the token is the real gate. The old `https://*.ts.net` frame-ancestors wildcard was removed with fix 1; allowed framers are now derived from `base_url` (see issue #2's comment).
 
 ## 5. Reporting Security Vulnerabilities
 
