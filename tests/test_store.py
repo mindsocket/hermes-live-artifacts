@@ -85,6 +85,13 @@ def test_doc_count_quota(store, aid, monkeypatch):
     store.set_doc(aid, "c/d0", {"i": 100})  # existing doc still writable
 
 
+def test_total_bytes_quota(store, aid, monkeypatch):
+    monkeypatch.setattr(store_mod, "MAX_TOTAL_DOC_BYTES", 1000)
+    store.set_doc(aid, "c/big", {"blob": "x" * 900})  # 900+ overhead fits
+    assert code(store.set_doc, aid, "c/next", {"blob": "x" * 900}) == "quota_exceeded"
+    store.set_doc(aid, "c/big", {"blob": "x" * 100})  # replacing smaller is fine
+
+
 def test_query_filters_order_limit(store, aid):
     for i, (n, tag) in enumerate([(3, "b"), (1, "a"), (2, "b"), (5, "c")]):
         store.set_doc(aid, f"items/i{i}", {"n": n, "tag": tag, "tags": [tag, "all"]})

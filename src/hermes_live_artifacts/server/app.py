@@ -39,6 +39,9 @@ SHIM = (Path(__file__).parent / "shim.js").read_text()
 # POST bodies: one API call carries a path plus one document (256 KiB cap in the validator); anything
 # much larger is a mistake or an attack, so answer 413 before reading it.
 MAX_BODY_BYTES = 300 * 1024
+# Open SSE streams per artifact. Each stream wakes once a second, so an unbounded page (or a hostile
+# one holding its token) could pile up loops; 8 is well above any real page's listener count.
+MAX_SSE_PER_ARTIFACT = 8
 # The reset every page fragment is wrapped in. Pages rely on it: 14px system font, zero body margin, safe-area padding on :root, and a
 # [hidden] rule that beats author display values. We add no design tokens of our own.
 RESET_CSS = (
@@ -178,6 +181,7 @@ def make_app(
     ancestors = frame_ancestors_from(base_url)
 
     background_tasks: set[asyncio.Task] = set()
+    sse_counts: dict[str, int] = {}  # open event streams per artifact
 
     def live(aid: str) -> dict:
         a = store.get_artifact(aid)
@@ -300,6 +304,18 @@ def make_app(
     async def events(request: web.Request) -> web.StreamResponse:
         aid, k = request.match_info["aid"], request.query.get("k", "")
         authed(k, aid)
+        n = sse_counts.get(aid, 0)
+        if n >= MAX_SSE_PER_ARTIFACT:
+            raise web.HTTPTooManyRequests(text="too many event streams for this artifact")
+        sse_counts[aid] = n + 1
+        try:
+            return await _stream_events(request, aid, k)
+        finally:
+            sse_counts[aid] -= 1
+            if sse_counts[aid] <= 0:
+                del sse_counts[aid]
+
+    async def _stream_events(request: web.Request, aid: str, k: str) -> web.StreamResponse:
         resp = web.StreamResponse(
             headers={
                 "Content-Type": "text/event-stream",

@@ -202,6 +202,20 @@ def test_sse_emits_change_event(store, art):
 
 
 # ---------------------------------------------------------------- sandbox, CORS, clean URL
+def test_sse_connections_per_artifact_are_capped(store, art):
+    async def go(c):
+        streams = [await c.get(f"/api/{art['id']}/events?k={art['token']}") for _ in range(8)]
+        assert all(s.status == 200 for s in streams)
+        extra = await c.get(f"/api/{art['id']}/events?k={art['token']}")
+        assert extra.status == 429
+        other = store.create_artifact("o", "<p/>", {"db": {}})
+        assert (await c.get(f"/api/{other['id']}/events?k={other['token']}")).status == 200  # cap is per artifact
+        for s in streams:
+            s.close()
+
+    run(with_client(store, go))
+
+
 def test_non_object_body_is_400_and_oversize_is_413(store, art):
     async def go(c):
         url = f"/api/{art['id']}/db/set"

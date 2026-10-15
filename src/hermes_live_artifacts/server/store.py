@@ -26,6 +26,7 @@ MIN_KEY_BYTES = 32  # minimum installation HMAC key length
 MAX_DOC_BYTES = 256 * 1024
 MAX_DEPTH = 32
 MAX_DOCS_PER_ARTIFACT = 25_000
+MAX_TOTAL_DOC_BYTES = 50 * 1024 * 1024  # per-artifact sum of document bodies
 MAX_FILTERS = 10
 MAX_IN_VALUES = 30
 MAX_LIMIT = 1000
@@ -504,6 +505,11 @@ class Store:
             n = c.execute("SELECT COUNT(*) FROM docs WHERE artifact_id=?", (aid,)).fetchone()[0]
             if n >= MAX_DOCS_PER_ARTIFACT:
                 raise DbError("quota_exceeded", "artifact database holds the maximum of 25,000 documents")
+            total = c.execute(
+                "SELECT COALESCE(SUM(LENGTH(data)),0) FROM docs WHERE artifact_id=?", (aid,)
+            ).fetchone()[0]
+            if total + len(body.encode()) > MAX_TOTAL_DOC_BYTES:
+                raise DbError("quota_exceeded", "artifact database exceeds its 50 MiB document quota")
             c.execute(
                 "INSERT INTO docs (artifact_id,path,collection,data,version,updated_at) VALUES (?,?,?,?,1,?)",
                 (aid, path, coll, body, now),
