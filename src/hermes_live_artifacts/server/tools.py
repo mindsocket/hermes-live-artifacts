@@ -152,6 +152,22 @@ def artifact_db_write(args: dict, **_kw) -> str:
     return _ok(path=path)
 
 
+def artifact_rotate_link(args: dict, **_kw) -> str:
+    """Rotate the artifact's token: existing links (?k=), cookies and open event streams die; the agent
+    gets a fresh link. In `never` mode the id in the URL is the credential, so rotating does not revoke
+    the page link — refuse rather than imply a revocation that did not happen."""
+    aid = args.get("id")
+    if not _link_secret:
+        return _err("link rotation is meaningless with link_secret=never: the id in the URL is the "
+                    "capability and rotating the token does not revoke the link. Use artifact_archive to revoke.")
+    try:
+        store().rotate_token(aid)
+    except KeyError:
+        return _err(f"no such artifact {aid}")
+    a = store().get_artifact(aid)
+    return _ok(link=link(a), rotated=aid)
+
+
 def artifact_archive(args: dict, **_kw) -> str:
     try:
         store().archive(args.get("id"))
@@ -264,6 +280,17 @@ TOOLS = [
             ["id", "path", "data"],
         ),
         artifact_db_write,
+    ),
+    (
+        _schema(
+            "artifact_rotate_link",
+            "Rotate an artifact's link secret: old links, page cookies and open sessions stop working; "
+            "returns the new link. Refuses with an error when link_secret is `never` (the URL id is the "
+            "capability) — archive instead to revoke.",
+            {"id": _ID},
+            ["id"],
+        ),
+        artifact_rotate_link,
     ),
     (
         _schema(

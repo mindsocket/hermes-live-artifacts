@@ -29,7 +29,7 @@ Status: working spike, being hardened.
     artifact_create(title, html, capabilities?, pinned?, seed?, wake?)   returns the link and push_on_submit
     artifact_update(id, html?, ...)    in place; db contents kept
     artifact_read(id)                  status plus every document
-    artifact_list / artifact_db_write / artifact_archive / artifact_delete / artifact_export
+    artifact_list / artifact_db_write / artifact_rotate_link / artifact_archive / artifact_delete / artifact_export
 
 ## Skills
 

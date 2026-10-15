@@ -270,7 +270,7 @@ def test_register_tools_only_when_not_listening(monkeypatch, tmp_path):
     monkeypatch.setenv("HERMES_LIVE_ARTIFACTS_DATA", str(tmp_path))
     ctx = FakeCtx({"listen_process": "none"})
     plug.register(ctx)
-    assert len(ctx.tools) == 8 and "capabilities" in ctx.skills and ctx.spawned == []
+    assert len(ctx.tools) == 9 and "capabilities" in ctx.skills and ctx.spawned == []
 
 
 def test_register_all_skills_with_description(monkeypatch, tmp_path):
@@ -383,6 +383,26 @@ def test_invalid_settings_raise():
         plug.read_settings(lambda k, d: {"link_secret": "bogus"}.get(k, d), env={})
     with pytest.raises(ValueError, match="listen_process"):
         plug.read_settings(lambda k, d: {"listen_process": "bogus"}.get(k, d), env={})
+
+
+def test_rotate_link_revokes_and_returns_new_link(tools_store):
+    t.configure("https://h.ts.net", link_secret=True)
+    a = json.loads(t.artifact_create({"title": "x", "html": "<p/>"}))
+    old = t.store().get_artifact(a["id"])
+    out = json.loads(t.artifact_rotate_link({"id": a["id"]}))
+    assert out["ok"] and "?k=" in out["link"] and a["id"] in out["link"]
+    assert out["link"] != a["link"]
+    fresh = t.store().get_artifact(a["id"])
+    assert fresh["token"] != old["token"]  # old link, cookie and open streams now fail auth
+
+
+def test_rotate_link_refuses_in_never_mode(tools_store):
+    t.configure("https://h.ts.net", link_secret=False)
+    a = json.loads(t.artifact_create({"title": "x", "html": "<p/>"}))
+    before = t.store().get_artifact(a["id"])
+    out = json.loads(t.artifact_rotate_link({"id": a["id"]}))
+    assert out["ok"] is False and "never" in out["error"] and "archive" in out["error"]
+    assert t.store().get_artifact(a["id"])["token"] == before["token"]  # nothing rotated
 
 
 def test_links_follow_the_setting_and_legacy_ids_keep_the_secret(tools_store):
