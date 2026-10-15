@@ -21,8 +21,8 @@ This document outlines the security architecture, threat model, trust boundaries
 
 | Threat | Risk Level | Mitigation Control | Verification Evidence |
 | :--- | :--- | :--- | :--- |
-| **Cross-Artifact Contamination / Data Theft** | Critical | **Opaque Origin Sandbox & Capability Tokens**: Pages served with CSP `sandbox allow-scripts` (opaque origin `null`). Custom `x-artifact` header required on all `/api/<id>/*` operations; credentials never accepted. | `test_one_artifacts_token_cannot_reach_another`<br>`test_cross_origin_post_without_the_token_header_is_rejected` |
-| **Plaintext Bearer Token Leakage at Rest** | Medium | **HMAC derivation**: the API token is `HMAC-SHA256(installation key, id:salt)`. SQLite stores only a random salt, so a copy of `artifacts.db` alone does not contain working tokens. The installation key is `.secret` (0600, at least 32 bytes, created atomically, refused if short) or `HERMES_LIVE_ARTIFACTS_SECRET`. Limits: the backup includes `.secret` by design (see Backups), and in `never` mode the artifact id in the database opens the page, which embeds the token. | `test_token_at_rest_is_not_plaintext`<br>`test_key_is_created_once_private_and_reused`<br>`test_empty_or_short_key_file_is_refused_not_used`<br>`test_concurrent_first_starts_agree_on_one_key` |
+| **Cross-Artifact Contamination / Data Theft** | Critical | **Opaque Origin Sandbox & Capability Tokens**: Pages served with a CSP `sandbox` that omits `allow-same-origin` (opaque origin `null`). Custom `x-artifact` header required on all `/api/<id>/*` operations; credentials never accepted. | `test_one_artifacts_token_cannot_reach_another`<br>`test_cross_origin_post_without_the_token_header_is_rejected` |
+| **Plaintext Bearer Token Leakage at Rest** | Medium | **HMAC derivation**: the API token is `HMAC-SHA256(installation key, id:salt)`. SQLite stores only a random salt, so a copy of `artifacts.db` alone does not contain working tokens. The installation key is `.secret` (0600, at least 32 bytes, created atomically, refused if short) or `HERMES_LIVE_ARTIFACTS_SECRET`. Limits: the backup includes `.secret` by design (see Backups), and in `never` mode the artifact id in the database opens the page, which embeds the token. | `test_only_a_salt_is_stored_not_the_token`<br>`test_key_is_created_once_private_and_reused`<br>`test_empty_or_short_key_file_is_refused_not_used`<br>`test_concurrent_first_starts_agree_on_one_key` |
 | **Artifact ID Enumeration** | Low | **Unguessable ids** (22 characters, 122 random bits) and, for page loads, a uniform 404 for unknown, archived and (in `always` mode) unauthenticated requests. In `never` mode a live id with no `?k=` is served by design: the id is the credential. `/api/*` and `/events` answer 404 for an unknown or archived id and 403 for a wrong token, so they do distinguish a live id; at 122 bits that is not exploitable. | `test_unknown_artifact_404`<br>`test_bare_url_without_cookie_is_forbidden_and_wrong_token_too`<br>`test_non_ascii_token_is_refused_like_any_wrong_token` |
 | **Host Compromise via Rogue MCP Calls** | Critical | **Two gates**: this plugin refuses any server/tool the artifact's manifest does not declare. The operator's `mcp_allowlist` is enforced by Hermes inside `ctx.call_mcp`; this repo's tests cover only the plugin's mapping of Hermes' refusal, not Hermes' own check. The allowlist is per server, so an agent-written manifest can declare any tool on an allowed server. | `test_mcp_refuses_undeclared_server_or_tool_without_calling`<br>`test_mcp_operator_allowlist_refusal_maps_to_blocked_by_policy` |
 | **Prompt Injection via Artifact Submissions** | High | **Mitigation, not prevention**: the pushed message labels the JSON as user-supplied data, not instructions, and the data is JSON-encoded so it cannot close its code fence. That label is advice to the model, not a boundary. Anyone holding a link can submit, and in `never` mode that is anyone who has seen the URL. | `test_push_goes_to_creating_session_without_names_or_token` |
@@ -37,10 +37,7 @@ This document outlines the security architecture, threat model, trust boundaries
 Unlike Claude's native artifact architecture (which allocates independent subdomains for each artifact frame), `hermes-live-artifacts` runs on a single host origin (typically an internal Tailscale tailnet node IP or DNS name).
 
 To achieve strict isolation across artifacts:
-- Every artifact page response carries:
-  ```http
-  Content-Security-Policy: sandbox allow-scripts allow-forms allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox; default-src 'self'; ...
-  ```
+- Every artifact page response carries a `Content-Security-Policy` whose last directive is `sandbox ...` (the flag list is in architecture.md §5 and `app.py`).
 - Omission of `allow-same-origin` forces the browser to treat each document as possessing a unique, opaque origin (`null`).
 - Sandboxed documents cannot read or write `localStorage`, `sessionStorage`, `IndexedDB`, or browser cookies.
 - Cross-artifact DOM navigation and script interaction are blocked by standard browser boundary enforcement.
@@ -48,11 +45,11 @@ To achieve strict isolation across artifacts:
 ### 3.2 Capability Tokens & HMAC Derivation
 All state mutations and queries against `/api/<id>/*` require the per-artifact bearer capability token.
 - **In-Memory Injection**: The derived token is injected directly into `window.__ARTIFACT__.token` at page render time.
-- **At-Rest Protection**: The SQLite database stores only a random cryptographic salt in the `artifacts.token` column. The actual bearer token is derived on demand:
+- **At-Rest Protection**: The SQLite database stores only a random cryptographic salt in the `artifacts.salt` column. The actual bearer token is derived on demand:
   $$\text{BearerToken} = \text{Base64URL}(\text{HMAC-SHA256}(K_{\text{install}}, \text{aid} \parallel ":" \parallel \text{salt}))$$
   A copy of `artifacts.db` alone therefore holds no working token. The artifact ids and all document data are in it in plaintext, and in `never` mode an id is enough to open the page, which embeds the token. The scheme protects the API token against a database-only leak; it is not encryption at rest.
 - **Installation key**: `.secret` in the data directory (or `HERMES_LIVE_ARTIFACTS_SECRET`). It is created with mode 0600 by writing a private temp file and hard-linking it into place, so concurrent first starts agree on one key and no reader sees a partial file. A key under 32 bytes is refused with an error instead of being used or replaced, because replacing it changes every token. To recover from a damaged file, delete it; every link and page token then changes.
-- **Revocation**: archiving an artifact replaces its salt, which invalidates its links, cookies and API token at once. `Store.rotate_token` does the same without archiving, but no agent tool exposes it yet, so archiving is the only revocation available today.
+- **Revocation**: archiving an artifact replaces its salt, which invalidates its links, cookies and API token at once. `Store.rotate_token` does the same without archiving, but no agent tool exposes it yet (issue #6), so archiving is the only revocation available today.
 
 ### 3.3 Not-found and forbidden responses
 What the code does, measured with `link_secret` set both ways (unknown id, archived id, existing id with no / wrong / non-ASCII `k`):
@@ -89,10 +86,9 @@ Found by an independent audit on 2026-10-15 and not yet fixed. Evidence labels: 
 3. **The API token is in the SSE URL** and aiohttp's default access log records query strings (observed; whether lines reach a file is a hypothesis).
 4. **The database and data directory are created with default permissions** (0644 database measured), so other local users can read artifact data. Single-user machines are not affected in practice.
 5. **No connection or size caps on the event stream and storage** (observed): a page holding a token can load the gateway process.
-6. **No tool rotates a link**; archive is the only revocation.
+6. **No tool rotates a link**; archive is the only revocation (issue #6).
 7. **The event stream's change counter is global** (measured), so one artifact sees when others are written. `/healthz` exposes it without auth.
 8. **`frame-ancestors` allows any `*.ts.net` host**, and there is no `Host` header check (measured: a foreign `Host` returns 200).
-9. **Malformed JSON bodies can produce a 500** (measured), with no traceback leaked.
 
 ## 5. Reporting Security Vulnerabilities
 

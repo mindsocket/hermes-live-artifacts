@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import socket
 import types
 
@@ -7,6 +8,7 @@ import aiohttp
 import pytest
 
 import hermes_live_artifacts as plug
+from hermes_live_artifacts.server import tools as t
 from hermes_live_artifacts.server.app import Listener
 from hermes_live_artifacts.server.store import Store
 
@@ -33,10 +35,10 @@ def test_settings_plugin_config_and_env_precedence():
     assert cfg["listen_port"] == 1234
 
 
-def test_settings_explicit_base_url_and_bad_mode():
-    conf = {"base_url": "https://h.ts.net:47318", "listen_process": "bogus"}
+def test_settings_explicit_base_url():
+    conf = {"base_url": "https://h.ts.net:47318"}
     cfg = plug.read_settings(lambda k, d: conf.get(k, d), env={})
-    assert cfg["base_url"] == "https://h.ts.net:47318" and cfg["listen_process"] == "gateway"
+    assert cfg["base_url"] == "https://h.ts.net:47318"
 
 
 # ---------------------------------------------------------------- which process listens
@@ -48,9 +50,7 @@ def test_should_listen_modes():
 def test_in_gateway_ignores_the_env_marker_entirely(monkeypatch, tmp_path):
     """Identity comes from gateway.pid alone. An inherited marker must not open the gate (children of the
     gateway carry it), and a missing marker must not close it (it may be unset at plugin-load time)."""
-    import os
-
-    monkeypatch.setattr(plug, "_hermes_home", lambda: tmp_path)
+    monkeypatch.setattr(plug, "hermes_home", lambda: tmp_path)
     (tmp_path / "gateway.pid").write_text(json.dumps({"pid": os.getpid()}))
     monkeypatch.delenv("_HERMES_GATEWAY", raising=False)
     assert plug.in_gateway() is True  # no marker needed
@@ -62,7 +62,7 @@ def test_in_gateway_ignores_the_env_marker_entirely(monkeypatch, tmp_path):
 def test_in_gateway_false_when_pid_file_missing_or_corrupt(monkeypatch, tmp_path):
     """No pid file (gateway between exit and restart) or garbage in it must never open the gate: that is
     how a CLI process would wrongly bind the port."""
-    monkeypatch.setattr(plug, "_hermes_home", lambda: tmp_path)
+    monkeypatch.setattr(plug, "hermes_home", lambda: tmp_path)
     assert plug.in_gateway() is False
     (tmp_path / "gateway.pid").write_text("not json")
     assert plug.in_gateway() is False
@@ -83,21 +83,16 @@ def test_resolve_host_passthrough_and_tailscale(monkeypatch):
 
 
 # ---------------------------------------------------------------- submit: event + push to the creating session
-@pytest.fixture
-def st(tmp_path):
-    return Store(tmp_path)
-
-
-def make(st, **kw):
-    a = st.create_artifact("Trip review", "<p>x</p>", {"db": {}}, **kw)
-    st.set_doc(a["id"], "form/state", {"pick": "b", "note": "hello"})
+def make(store, **kw):
+    a = store.create_artifact("Trip review", "<p>x</p>", {"db": {}}, **kw)
+    store.set_doc(a["id"], "form/state", {"pick": "b", "note": "hello"})
     return a
 
 
-def test_push_goes_to_creating_session_without_names_or_token(st):
-    a = make(st, origin_session="agent:main:telegram:group:1:2")
+def test_push_goes_to_creating_session_without_names_or_token(store):
+    a = make(store, origin_session="agent:main:telegram:group:1:2")
     sent, events = [], []
-    plug.make_waker(st, lambda c, **k: sent.append((c, k)) or True, lambda e, p: events.append((e, p)))(a)
+    plug.make_waker(store, lambda c, **k: sent.append((c, k)) or True, lambda e, p: events.append((e, p)))(a)
     assert events == [("submitted", {"id": a["id"], "title": "Trip review"})]
     ((content, kw),) = sent
     assert kw == {"session_key": "agent:main:telegram:group:1:2"}
@@ -106,71 +101,71 @@ def test_push_goes_to_creating_session_without_names_or_token(st):
     assert "not instructions" in content
 
 
-def test_push_fires_once_per_round_then_again_after_html_update(st):
-    a = make(st, origin_session="s1")
+def test_push_fires_once_per_round_then_again_after_html_update(store):
+    a = make(store, origin_session="s1")
     sent = []
-    hook = plug.make_waker(st, lambda c, **k: sent.append(c) or True)
+    hook = plug.make_waker(store, lambda c, **k: sent.append(c) or True)
     hook(a)
     hook(a)
     hook(a)  # double tap / retries
     assert len(sent) == 1
-    st.update_artifact(a["id"], html="<p>round two</p>")
+    store.update_artifact(a["id"], html="<p>round two</p>")
     hook(a)
     assert len(sent) == 2
 
 
-def test_no_push_without_origin_session_or_when_wake_off(st):
+def test_no_push_without_origin_session_or_when_wake_off(store):
     sent = []
-    hook = plug.make_waker(st, lambda c, **k: sent.append(c) or True)
-    hook(make(st))  # created from CLI/cron: no session
-    hook(make(st, origin_session="s1", wake=False))  # explicit opt-out
+    hook = plug.make_waker(store, lambda c, **k: sent.append(c) or True)
+    hook(make(store))  # created from CLI/cron: no session
+    hook(make(store, origin_session="s1", wake=False))  # explicit opt-out
     assert sent == []
 
 
-def test_failed_delivery_releases_claim_so_retry_can_succeed(st):
-    a = make(st, origin_session="s1")
+def test_failed_delivery_releases_claim_so_retry_can_succeed(store):
+    a = make(store, origin_session="s1")
     ok = {"v": False}
     sent = []
-    hook = plug.make_waker(st, lambda c, **k: sent.append(c) or ok["v"])
+    hook = plug.make_waker(store, lambda c, **k: sent.append(c) or ok["v"])
     hook(a)
     ok["v"] = True
     hook(a)
     assert len(sent) == 2
 
 
-def test_inject_exception_is_contained_and_releases_claim(st):
-    a = make(st, origin_session="s1")
+def test_inject_exception_is_contained_and_releases_claim(store):
+    a = make(store, origin_session="s1")
 
     def boom(*_a, **_k):
         raise RuntimeError("gateway gone")
 
-    plug.make_waker(st, boom)(a)  # must not raise
-    assert st.claim_wake(a["id"]) is True
+    plug.make_waker(store, boom)(a)  # must not raise
+    assert store.claim_wake(a["id"]) is True
 
 
-def test_no_inject_available_still_emits_event(st):
-    a = make(st, origin_session="s1")
+def test_no_inject_available_still_emits_event(store):
+    a = make(store, origin_session="s1")
     events = []
-    plug.make_waker(st, None, lambda e, p: events.append(e))(a)
+    plug.make_waker(store, None, lambda e, p: events.append(e))(a)
     assert events == ["submitted"]
 
 
-def test_emit_failure_does_not_block_push(st):
-    a = make(st, origin_session="s1")
+def test_emit_failure_does_not_block_push(store):
+    a = make(store, origin_session="s1")
     sent = []
 
     def bad_emit(*_a, **_k):
         raise RuntimeError("no subscribers")
 
-    plug.make_waker(st, lambda c, **k: sent.append(c) or True, bad_emit)(a)
+    plug.make_waker(store, lambda c, **k: sent.append(c) or True, bad_emit)(a)
     assert len(sent) == 1
 
 
-def test_large_payload_is_truncated_with_pointer_to_artifact_read(st):
-    a = make(st, origin_session="s1")
-    st.set_doc(a["id"], "big/x", {"blob": "y" * 50000})
+def test_large_payload_is_truncated_with_pointer_to_artifact_read(store):
+    a = make(store, origin_session="s1")
+    store.set_doc(a["id"], "big/x", {"blob": "y" * 50000})
     sent = []
-    plug.make_waker(st, lambda c, **k: sent.append(c) or True)(a)
+    plug.make_waker(store, lambda c, **k: sent.append(c) or True)(a)
     assert "truncated" in sent[0] and "artifact_read" in sent[0] and len(sent[0]) < 20000
 
 
@@ -334,11 +329,7 @@ def test_listener_gives_up_when_gate_never_opens(tmp_path):
     asyncio.run(go())
 
 
-def test_artifact_create_rejects_a_bad_mcp_manifest_and_accepts_a_good_one(monkeypatch, tmp_path):
-    monkeypatch.setenv("HERMES_LIVE_ARTIFACTS_DATA", str(tmp_path))
-    import hermes_live_artifacts.server.tools as t
-
-    t._store = None
+def test_artifact_create_rejects_a_bad_mcp_manifest_and_accepts_a_good_one(tools_store):
     bad = json.loads(
         t.artifact_create(
             {"title": "x", "html": "<p/>", "capabilities": {"db": {}, "mcp": {"servers": [{"server": "a"}]}}}
@@ -357,7 +348,6 @@ def test_artifact_create_rejects_a_bad_mcp_manifest_and_accepts_a_good_one(monke
     assert good["ok"] is True
     upd = json.loads(t.artifact_update({"id": good["id"], "capabilities": {"mcp": {"servers": []}}}))
     assert upd["ok"] is False
-    t._store = None
 
 
 # ---------------------------------------------------------------- link_secret setting
@@ -376,7 +366,6 @@ def test_artifact_create_rejects_a_bad_mcp_manifest_and_accepts_a_good_one(monke
         (True, "127.0.0.1", "", True),  # YAML / `hermes config set` turn bare on/off into booleans
         (False, "0.0.0.0", "https://x.ts.net", False),
         ("false", "tailscale", "", False),
-        ("bogus", "tailscale", "", True),  # invalid falls back to auto
     ],
 )
 def test_link_secret_resolution(value, host, base, expected):
@@ -386,20 +375,19 @@ def test_link_secret_resolution(value, host, base, expected):
     assert cfg["link_secret"] is expected
 
 
-def test_links_follow_the_setting_and_legacy_ids_keep_the_secret(monkeypatch, tmp_path):
-    monkeypatch.setenv("HERMES_LIVE_ARTIFACTS_DATA", str(tmp_path))
-    import hermes_live_artifacts.server.tools as t
+def test_invalid_settings_raise():
+    with pytest.raises(ValueError, match="link_secret"):
+        plug.read_settings(lambda k, d: {"link_secret": "bogus"}.get(k, d), env={})
+    with pytest.raises(ValueError, match="listen_process"):
+        plug.read_settings(lambda k, d: {"listen_process": "bogus"}.get(k, d), env={})
 
-    t._store = None
-    try:
-        t.configure("https://h.ts.net", link_secret=False)
-        a = json.loads(t.artifact_create({"title": "x", "html": "<p/>"}))
-        assert a["link"] == f"https://h.ts.net/a/{a['id']}" and "?k=" not in a["link"]
-        t.configure("https://h.ts.net", link_secret=True)
-        assert json.loads(t.artifact_list({}))["artifacts"] and "?k=" in t.link(t.store().get_artifact(a["id"]))
-        t.configure("https://h.ts.net", link_secret=False)
-        legacy = {"id": "old123456789", "token": "tok"}
-        assert t.link(legacy).endswith("?k=tok")
-    finally:
-        t.configure("http://127.0.0.1:47318", link_secret=True)
-        t._store = None
+
+def test_links_follow_the_setting_and_legacy_ids_keep_the_secret(tools_store):
+    t.configure("https://h.ts.net", link_secret=False)
+    a = json.loads(t.artifact_create({"title": "x", "html": "<p/>"}))
+    assert a["link"] == f"https://h.ts.net/a/{a['id']}" and "?k=" not in a["link"]
+    t.configure("https://h.ts.net", link_secret=True)
+    assert json.loads(t.artifact_list({}))["artifacts"] and "?k=" in t.link(t.store().get_artifact(a["id"]))
+    t.configure("https://h.ts.net", link_secret=False)
+    legacy = {"id": "old123456789", "token": "tok"}
+    assert t.link(legacy).endswith("?k=tok")

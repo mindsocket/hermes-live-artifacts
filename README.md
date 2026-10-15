@@ -16,7 +16,7 @@ Status: working spike, being hardened.
     agent tools (artifact_create ...) --> SQLite store <-- aiohttp listener --> your browser
                                                               (inside the gateway process)
 
-- The plugin registers eight `artifact_*` tools and three skills.
+- The plugin registers `artifact_*` tools and skills.
 - One aiohttp listener runs inside the long-lived messaging gateway (other processes load tools only and share the
   SQLite file). It serves `/a/<id>` pages and `/api/<id>/*`.
 - A link is `<base_url>/a/<id>` (22-character random id). With `link_secret: always` it also carries `?k=<token>`, which is
@@ -71,10 +71,12 @@ There is no sign-in. Access is by possession of the link, so treat the listener 
 - `link_secret: never`: the link is `/a/<22-char random id>`, protected by obscurity (122 random bits). Reasonable on a private
   tailnet you control. Anyone who sees the URL (pasted chat, browser history, screen share) can open that artifact.
 - `link_secret: always`: adds `?k=<secret>`, stripped from the address bar after the first open. Same sharing risk, but
-  the id alone is not enough, and you can revoke by rotating the secret.
+  the id alone is not enough. Either way, archiving the artifact revokes its link.
 - `auto` (default) picks `always` when the bind address or `base_url` is not loopback. Set `never` explicitly to get clean
   URLs on a tailnet.
-- Pages run in a sandbox with no cookies or browser storage, and each can call only its own artifact's API.
+- Pages run in a sandbox with no cookies or browser storage, and each carries only its own artifact's API token.
+  The browser does not stop a page calling another artifact's API, so the token is the only barrier; see
+  [docs/SECURITY.md](docs/SECURITY.md).
 - A page may call MCP tools only if it declares them and the operator has allowed that server. Declared tools run with
   your authority.
 - Do not expose the port to the public internet. Tailscale Funnel is out of scope.
@@ -87,17 +89,9 @@ There is no sign-in. Access is by possession of the link, so treat the listener 
     uv run ruff format --check         # check code formatting
     uv run python scripts/validate.py  # validate plugin manifest and isolation in clean temp directory
 
-See [AGENTS.md](AGENTS.md) for conventions and pitfalls.
+## More
 
-## Layout
-
-    plugin.yaml                  plugin manifest (directory-plugin route)
-    __init__.py                  shim: adds src/ to sys.path, re-exports register
-    pyproject.toml               package metadata, entry point, pytest config
-    src/hermes_live_artifacts/
-      __init__.py                register(ctx), listener hosting, submit push
-      server/  app.py store.py tools.py shim.js
-      skills/  capabilities/ design/
-    tests/
-    docs/    compatibility.md
-    tmp/     local notes and captures, gitignored (never commit)
+- [docs/architecture.md](docs/architecture.md): components, data model, hosting and isolation design.
+- [docs/SECURITY.md](docs/SECURITY.md): threat model and known gaps.
+- [docs/compatibility.md](docs/compatibility.md): how the page API differs from Claude's.
+- [AGENTS.md](AGENTS.md): repository layout, conventions and pitfalls for contributors.

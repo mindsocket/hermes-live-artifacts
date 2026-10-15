@@ -7,7 +7,7 @@ import os
 from typing import Any
 
 from . import mcp as mcp_mod
-from .store import MIN_UNGUESSABLE_ID, DbError, Store
+from .store import DbError, Store, needs_link_secret
 
 _store: Store | None = None
 
@@ -20,8 +20,6 @@ def store() -> Store:
 
 
 _base_url = "http://127.0.0.1:47318"
-
-
 _link_secret = True
 
 
@@ -37,8 +35,7 @@ def base_url() -> str:
 
 
 def link(a: dict) -> str:
-    # Legacy short ids are guessable, so their links keep the secret whatever the setting.
-    if _link_secret or len(a["id"]) < MIN_UNGUESSABLE_ID:
+    if needs_link_secret(a["id"], _link_secret):
         return f"{base_url()}/a/{a['id']}?k={a['token']}"
     return f"{base_url()}/a/{a['id']}"
 
@@ -59,14 +56,14 @@ def current_session_key() -> str:
         from gateway.session_context import get_session_env
 
         key = get_session_env("HERMES_SESSION_KEY", "")
-    except Exception:
+    except ImportError:
         pass
     if not key:
         try:
             from tools.approval_context import get_current_session_key
 
             key = get_current_session_key("")
-        except Exception:
+        except ImportError:
             pass
     return key if key and key != "default" else ""
 
@@ -81,25 +78,29 @@ def _summary(a: dict) -> dict:
     return out
 
 
+def _capabilities(caps: Any, *, default: dict | None) -> dict | None:
+    """Accept a capability map or a bare list of names, and validate any `mcp` manifest."""
+    if caps is None:
+        return default
+    if isinstance(caps, list):
+        caps = {c: {} for c in caps}
+    if "mcp" in caps:
+        mcp_mod.validate_manifest(caps["mcp"])
+    return caps
+
+
 def artifact_create(args: dict, **_kw) -> str:
     title, html = args.get("title"), args.get("html")
     if not title or not html:
         return _err("title and html are required")
-    caps = args.get("capabilities")
-    if caps is None:
-        caps = {"db": {}, "user": {}}
-    if isinstance(caps, list):  # tolerate ["db","user"]
-        caps = {c: {} for c in caps}
     try:
-        if isinstance(caps, dict) and "mcp" in caps:
-            mcp_mod.validate_manifest(caps["mcp"])
+        caps = _capabilities(args.get("capabilities"), default={"db": {}, "user": {}})
         a = store().create_artifact(
             title,
             html,
             caps,
-            None,
-            bool(args.get("pinned")),
-            args.get("seed"),
+            pinned=bool(args.get("pinned")),
+            seed=args.get("seed"),
             origin_session=current_session_key() or None,
             wake=args.get("wake", True) is not False,
         )
@@ -110,12 +111,8 @@ def artifact_create(args: dict, **_kw) -> str:
 
 def artifact_update(args: dict, **_kw) -> str:
     aid = args.get("id")
-    caps = args.get("capabilities")
-    if isinstance(caps, list):
-        caps = {c: {} for c in caps}
     try:
-        if isinstance(caps, dict) and "mcp" in caps:
-            mcp_mod.validate_manifest(caps["mcp"])
+        caps = _capabilities(args.get("capabilities"), default=None)
         a = store().update_artifact(
             aid,
             title=args.get("title"),
@@ -138,17 +135,16 @@ def artifact_list(args: dict, **_kw) -> str:
 
 def artifact_read(args: dict, **_kw) -> str:
     aid = args.get("id")
-    a = store().get_artifact(aid)
+    st = store()
+    a = st.get_artifact(aid)
     if a is None:
         return _err(f"no such artifact {aid}")
-    docs = store().dump_docs(aid)
+    docs = st.dump_docs(aid)
     return _ok(**_summary(a), docs=docs, doc_count=len(docs))
 
 
 def artifact_db_write(args: dict, **_kw) -> str:
     aid, path, data = args.get("id"), args.get("path"), args.get("data")
-    if store().get_artifact(aid) is None:
-        return _err(f"no such artifact {aid}")
     try:
         store().set_doc(aid, path, data)
     except DbError as e:

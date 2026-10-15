@@ -25,7 +25,7 @@ from pathlib import Path
 from aiohttp import web
 
 from . import mcp as mcp_mod
-from .store import MIN_UNGUESSABLE_ID, SUBMIT_DOC, DbError, Store
+from .store import SUBMIT_DOC, DbError, Store, needs_link_secret
 
 log = logging.getLogger("hermes_live_artifacts")
 SHIM = (Path(__file__).parent / "shim.js").read_text()
@@ -151,7 +151,7 @@ def make_app(
 
     async def page(request: web.Request) -> web.StreamResponse:
         aid = request.match_info["aid"]
-        needs_secret = link_secret or len(aid) < MIN_UNGUESSABLE_ID
+        needs_secret = needs_link_secret(aid, link_secret)
         k = request.query.get("k")
         if not needs_secret:
             a = live(aid)
@@ -246,7 +246,7 @@ def make_app(
                 else:
                     await resp.write(b": ping\n\n")
                 await asyncio.sleep(1.0)
-                a = store.get_artifact(aid)  # stop streaming once revoked/archived
+                a = await asyncio.to_thread(store.get_artifact, aid)  # stop streaming once revoked/archived
                 if a is None or a["status"] == "archived" or not same_token(k, a["token"]):
                     break
         except (ConnectionResetError, asyncio.CancelledError):

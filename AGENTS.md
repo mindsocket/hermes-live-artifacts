@@ -2,7 +2,7 @@
 
 Hermes plugin: agent-published HTML pages with a Claude-compatible `window.claude` runtime, SQLite persistence, one
 aiohttp listener inside the Hermes gateway. Read README.md for the shape. Read
-docs/compatibility.md before touching `shim.js`, the CSP, or the skills.
+docs/compatibility.md before touching `shim.js` or the skills, and docs/architecture.md §5 before touching the CSP.
 
 ## Commands
 
@@ -34,7 +34,7 @@ docs/compatibility.md before touching `shim.js`, the CSP, or the skills.
 - Artifacts share one origin, so isolation between them rests on two things that must stay together: the CSP
   `sandbox` header (no `allow-same-origin`) and the per-artifact API token in the `x-artifact` header. Never reintroduce
   cookie-authenticated API calls or `allow-same-origin`. `link_secret` only gates page loads; the API token applies in
-  both modes. Legacy 12-char ids always require the secret. See docs/compatibility.md.
+  both modes. Legacy 12-char ids always require the secret. See docs/architecture.md §5.
 
 ## Conventions
 

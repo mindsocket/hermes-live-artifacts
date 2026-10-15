@@ -1,15 +1,12 @@
 import asyncio
+import re
+import sqlite3
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
+from hermes_live_artifacts.server import mcp as mcp_mod
 from hermes_live_artifacts.server.app import make_app
-from hermes_live_artifacts.server.store import Store
-
-
-@pytest.fixture
-def store(tmp_path):
-    return Store(tmp_path)
 
 
 @pytest.fixture
@@ -21,8 +18,8 @@ def run(coro):
     return asyncio.run(coro)
 
 
-async def with_client(store, fn, on_submit=None):
-    async with TestClient(TestServer(make_app(store, on_submit))) as c:
+async def with_client(store, fn, on_submit=None, mcp_call=None, link_secret=True):
+    async with TestClient(TestServer(make_app(store, on_submit, mcp_call, link_secret))) as c:
         return await fn(c)
 
 
@@ -245,11 +242,7 @@ def mcp_art(store, servers=None):
 
 
 def with_mcp(store, fn, mcp_call):
-    async def run_it():
-        async with TestClient(TestServer(make_app(store, None, mcp_call))) as c:
-            return await fn(c)
-
-    return asyncio.run(run_it())
+    return run(with_client(store, fn, mcp_call=mcp_call))
 
 
 def test_mcp_call_success_returns_payload_and_content(store):
@@ -373,9 +366,7 @@ def test_shim_config_carries_mcp_manifest_but_no_other_artifacts_token(store):
 
 
 def test_manifest_validation():
-    import hermes_live_artifacts.server.mcp as m
-
-    m.validate_manifest({"servers": [{"server": "a", "tools": ["x"]}]})
+    mcp_mod.validate_manifest({"servers": [{"server": "a", "tools": ["x"]}]})
     for bad in (
         None,
         {},
@@ -387,21 +378,15 @@ def test_manifest_validation():
         {"servers": [{"server": "a", "tools": ["x"]}, {"server": "a", "tools": ["y"]}]},
     ):
         with pytest.raises(ValueError):
-            m.validate_manifest(bad)
+            mcp_mod.validate_manifest(bad)
 
 
 # ---------------------------------------------------------------- link_secret off: the long id is the gate
 def with_mode(store, fn, link_secret):
-    async def run_it():
-        async with TestClient(TestServer(make_app(store, None, None, link_secret))) as c:
-            return await fn(c)
-
-    return asyncio.run(run_it())
+    return run(with_client(store, fn, link_secret=link_secret))
 
 
 def test_new_ids_are_22_url_safe_chars_and_unique(store):
-    import re
-
     ids = {store.create_artifact("x", "<p/>", {"db": {}})["id"] for _ in range(50)}
     assert len(ids) == 50 and all(re.fullmatch(r"[A-Za-z0-9_-]{22}", i) for i in ids)
 
@@ -437,8 +422,6 @@ def test_link_secret_off_keeps_the_api_token_so_artifacts_stay_isolated(store, a
 
 def test_legacy_short_id_keeps_the_secret_even_when_off(store):
     old = store.create_artifact("old", "<p/>", {"db": {}})
-    import sqlite3
-
     c = sqlite3.connect(store.path)
     c.execute("UPDATE artifacts SET id='old123456789' WHERE id=?", (old["id"],))
     c.commit()

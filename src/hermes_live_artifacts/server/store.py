@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import hmac
 import json
+import operator
 import os
 import re
 import secrets
@@ -21,22 +22,23 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-MIN_KEY_BYTES = 32  # installation HMAC key length
+MIN_KEY_BYTES = 32  # minimum installation HMAC key length
 MAX_DOC_BYTES = 256 * 1024
 MAX_DEPTH = 32
 MAX_DOCS_PER_ARTIFACT = 25_000
 MAX_FILTERS = 10
 MAX_IN_VALUES = 30
 MAX_LIMIT = 1000
+DEFAULT_LEASE_MS, MIN_LEASE_MS, MAX_LEASE_MS = 30_000, 1_000, 600_000
 _SEG_RE = re.compile(r"^[A-Za-z0-9_\-.~:@+]+$")
 SUBMIT_DOC = "meta/status"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS artifacts (
   id TEXT PRIMARY KEY, title TEXT NOT NULL, html TEXT NOT NULL,
-  capabilities TEXT NOT NULL DEFAULT '{}', mcp_allowlist TEXT NOT NULL DEFAULT '[]',
+  capabilities TEXT NOT NULL DEFAULT '{}',
   pinned INTEGER NOT NULL DEFAULT 0, origin_session TEXT, wake INTEGER NOT NULL DEFAULT 1, woken_at REAL,
-  status TEXT NOT NULL DEFAULT 'active', token TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active', salt TEXT NOT NULL,
   created_at REAL NOT NULL, updated_at REAL NOT NULL,
   submitted_at REAL, last_write_at REAL, archived_at REAL
 );
@@ -52,14 +54,6 @@ INSERT OR IGNORE INTO meta (key, value) VALUES ('change_seq', 0);
 """
 
 
-# Columns added after the first release: column -> DDL tail. Applied to databases created earlier.
-MIGRATIONS = {
-    "origin_session": "TEXT",
-    "wake": "INTEGER NOT NULL DEFAULT 1",
-    "woken_at": "REAL",
-}
-
-
 class DbError(Exception):
     def __init__(self, code: str, message: str):
         super().__init__(f"{code}: {message}")
@@ -70,18 +64,29 @@ class DbError(Exception):
         return {"code": self.code, "message": self.message}
 
 
+def hermes_home() -> Path:
+    """Hermes' home directory; outside a Hermes process (tests, standalone) `$HERMES_HOME` or ~/.hermes."""
+    try:
+        from hermes_constants import get_hermes_home
+    except ImportError:
+        return Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
+    return Path(get_hermes_home())
+
+
 def default_data_dir() -> Path:
     override = os.environ.get("HERMES_LIVE_ARTIFACTS_DATA")
     if override:
         return Path(override)
-    try:
-        from hermes_constants import get_hermes_home
+    return hermes_home() / "plugin-data" / "hermes-live-artifacts"
 
-        home = Path(get_hermes_home())
-    except Exception:  # standalone / tests
-        home = Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
-    live_dir = home / "plugin-data" / "hermes-live-artifacts"
-    return live_dir
+
+def _b64(b: bytes) -> str:
+    return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+
+
+def _new_salt() -> str:
+    """Random per-artifact seed; the page token is derive_token(id, salt), so replacing the salt revokes it."""
+    return secrets.token_urlsafe(24)
 
 
 def _iso(ts: float) -> str:
@@ -134,9 +139,14 @@ def check_body(data: Any) -> str:
 MIN_UNGUESSABLE_ID = 22  # ids from new_artifact_id(); older 12-char ids are guessable and still need the link secret
 
 
+def needs_link_secret(aid: str, link_secret: bool) -> bool:
+    """Page loads and links carry the secret when configured to, and always for guessable legacy ids."""
+    return link_secret or len(aid) < MIN_UNGUESSABLE_ID
+
+
 def new_artifact_id() -> str:
     """22 URL-safe chars from a random UUIDv4 (122 random bits)."""
-    return base64.urlsafe_b64encode(uuid.uuid4().bytes).rstrip(b"=").decode()
+    return _b64(uuid.uuid4().bytes)
 
 
 def merge(base: dict, patch: dict) -> dict:
@@ -163,6 +173,8 @@ def _rank(v: Any) -> tuple:
 
 
 _MISSING = object()
+_ORDERING = {"<": operator.lt, "<=": operator.le, ">": operator.gt, ">=": operator.ge}
+_OPERATORS = {*_ORDERING, "==", "!=", "in", "not-in", "array-contains"}
 
 
 def _match(doc: dict, field: str, op: str, value: Any) -> bool:
@@ -173,11 +185,9 @@ def _match(doc: dict, field: str, op: str, value: Any) -> bool:
         return _rank(v) == _rank(value)
     if op == "!=":
         return _rank(v) != _rank(value)
-    if op in ("<", "<=", ">", ">="):
+    if op in _ORDERING:
         a, b = _rank(v), _rank(value)
-        if a[0] != b[0]:
-            return False
-        return {"<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
+        return a[0] == b[0] and _ORDERING[op](a, b)
     if op == "in":
         return any(_rank(v) == _rank(x) for x in value)
     if op == "not-in":
@@ -196,7 +206,7 @@ def _check_query(filters: list, order_by: list | None, limit: int | None) -> Non
         if f[1] in ("in", "not-in"):
             if not isinstance(f[2], list) or len(f[2]) > MAX_IN_VALUES:
                 raise DbError("invalid_argument", "in/not-in need an array of at most 30 values")
-        elif f[1] not in ("==", "!=", "<", "<=", ">", ">=", "array-contains"):
+        elif f[1] not in _OPERATORS:
             raise DbError("invalid_argument", f"unknown operator {f[1]!r}")
     if order_by is not None and (
         not isinstance(order_by, list) or len(order_by) != 2 or order_by[1] not in ("asc", "desc")
@@ -207,6 +217,9 @@ def _check_query(filters: list, order_by: list | None, limit: int | None) -> Non
 
 
 # ---------------------------------------------------------------- store
+_UPDATE_ENCODERS = {"title": str, "html": str, "capabilities": json.dumps, "pinned": int, "wake": int}
+
+
 class Store:
     def __init__(self, data_dir: Path | None = None):
         self.dir = Path(data_dir) if data_dir else default_data_dir()
@@ -216,12 +229,8 @@ class Store:
         # executescript() commits implicitly, so it can't run inside _tx()'s BEGIN IMMEDIATE.
         c = sqlite3.connect(self.path, timeout=10)
         try:
-            c.execute("PRAGMA journal_mode=WAL")
+            c.execute("PRAGMA journal_mode=WAL")  # persists in the db file, so _tx() needn't repeat it
             c.executescript(SCHEMA)
-            have = {r[1] for r in c.execute("PRAGMA table_info(artifacts)")}
-            for col, ddl in MIGRATIONS.items():  # CREATE IF NOT EXISTS never alters an existing table
-                if col not in have:
-                    c.execute(f"ALTER TABLE artifacts ADD COLUMN {col} {ddl}")
             c.commit()
         finally:
             c.close()
@@ -265,16 +274,23 @@ class Store:
 
     def derive_token(self, aid: str, seed: str) -> str:
         h = hmac.new(self._key, f"{aid}:{seed}".encode(), "sha256").digest()
-        return base64.urlsafe_b64encode(h).rstrip(b"=").decode()
+        return _b64(h)
 
     # connection per call: cheap, thread/process safe under WAL
+    @contextmanager
+    def _read(self) -> Iterator[sqlite3.Connection]:
+        c = sqlite3.connect(self.path, timeout=10)
+        try:
+            c.row_factory = sqlite3.Row
+            yield c
+        finally:
+            c.close()
+
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Connection]:
         c = sqlite3.connect(self.path, timeout=10, isolation_level=None)
         try:
             c.row_factory = sqlite3.Row
-            c.execute("PRAGMA journal_mode=WAL")
-            c.execute("PRAGMA busy_timeout=10000")
             c.execute("BEGIN IMMEDIATE")
             try:
                 yield c
@@ -289,11 +305,8 @@ class Store:
         c.execute("UPDATE meta SET value = value + 1 WHERE key='change_seq'")
 
     def change_seq(self) -> int:
-        c = sqlite3.connect(self.path, timeout=10)
-        try:
+        with self._read() as c:
             return c.execute("SELECT value FROM meta WHERE key='change_seq'").fetchone()[0]
-        finally:
-            c.close()
 
     # ------------------------------------------------ artifacts
     def create_artifact(
@@ -301,7 +314,6 @@ class Store:
         title: str,
         html: str,
         capabilities: dict | None = None,
-        mcp_allowlist: list | None = None,
         pinned: bool = False,
         seed: dict | None = None,
         origin_session: str | None = None,
@@ -311,19 +323,18 @@ class Store:
         now = time.time()
         with self._tx() as c:
             c.execute(
-                "INSERT INTO artifacts (id,title,html,capabilities,mcp_allowlist,pinned,origin_session,wake,"
-                "status,token,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO artifacts (id,title,html,capabilities,pinned,origin_session,wake,"
+                "status,salt,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     aid,
                     title,
                     html,
                     json.dumps(capabilities or {}),
-                    json.dumps(mcp_allowlist or []),
                     int(pinned),
                     origin_session or None,
                     int(wake),
                     "active",
-                    secrets.token_urlsafe(24),
+                    _new_salt(),
                     now,
                     now,
                 ),
@@ -333,50 +344,42 @@ class Store:
             self.set_doc(aid, path, data)
         return self.get_artifact(aid)
 
-    def get_artifact(self, aid: str) -> dict | None:
-        c = sqlite3.connect(self.path, timeout=10)
-        c.row_factory = sqlite3.Row
-        try:
-            r = c.execute("SELECT * FROM artifacts WHERE id=?", (aid,)).fetchone()
-        finally:
-            c.close()
-        if r is None:
-            return None
+    def _artifact_from_row(self, r: sqlite3.Row) -> dict:
         d = dict(r)
         d["capabilities"] = json.loads(d["capabilities"])
-        d["mcp_allowlist"] = json.loads(d["mcp_allowlist"])
         d["pinned"] = bool(d["pinned"])
         d["wake"] = bool(d["wake"])
-        d["token"] = self.derive_token(aid, d["token"])
+        d["token"] = self.derive_token(d["id"], d.pop("salt"))
         return d
 
-    def list_artifacts(self, status: str | None = None) -> list[dict]:
-        c = sqlite3.connect(self.path, timeout=10)
-        c.row_factory = sqlite3.Row
-        try:
-            q = "SELECT id FROM artifacts" + (" WHERE status=?" if status else "") + " ORDER BY updated_at DESC"
-            ids = [r["id"] for r in c.execute(q, (status,) if status else ())]
-        finally:
-            c.close()
+    def get_artifact(self, aid: str) -> dict | None:
+        with self._read() as c:
+            r = c.execute("SELECT * FROM artifacts WHERE id=?", (aid,)).fetchone()
+        return None if r is None else self._artifact_from_row(r)
+
+    def list_artifacts(self, status: str | None = None, *, full: bool = False) -> list[dict]:
+        """Newest first. Summaries omit `html` and `token`; `full` keeps `html` (never the token)."""
+        q = "SELECT * FROM artifacts" + (" WHERE status=?" if status else "") + " ORDER BY updated_at DESC"
+        with self._read() as c:
+            rows = c.execute(q, (status,) if status else ()).fetchall()
         out = []
-        for i in ids:
-            a = self.get_artifact(i)
-            a.pop("html"), a.pop("token")
+        for r in rows:
+            a = self._artifact_from_row(r)
+            del a["token"]
+            if not full:
+                del a["html"]
             out.append(a)
         return out
 
     def update_artifact(self, aid: str, **fields: Any) -> dict:
-        allowed = {"title", "html", "capabilities", "mcp_allowlist", "pinned", "wake"}
         sets, vals = [], []
         for k, v in fields.items():
             if v is None:
                 continue
-            if k not in allowed:
+            if k not in _UPDATE_ENCODERS:
                 raise ValueError(f"cannot update {k}")
             sets.append(f"{k}=?")
-            vals.append(
-                json.dumps(v) if k in ("capabilities", "mcp_allowlist") else (int(v) if k in ("pinned", "wake") else v)
-            )
+            vals.append(_UPDATE_ENCODERS[k](v))
             if k == "html":
                 sets.append("woken_at=NULL")  # a revised page is a new round: its next submit may wake again
         if not sets:
@@ -409,21 +412,22 @@ class Store:
             c.execute("UPDATE artifacts SET woken_at=NULL WHERE id=?", (aid,))
 
     def rotate_token(self, aid: str) -> str:
-        tok = secrets.token_urlsafe(24)
+        salt = _new_salt()
         with self._tx() as c:
-            if c.execute("UPDATE artifacts SET token=? WHERE id=?", (tok, aid)).rowcount == 0:
+            if c.execute("UPDATE artifacts SET salt=? WHERE id=?", (salt, aid)).rowcount == 0:
                 raise KeyError(aid)
-        return self.derive_token(aid, tok)
+        return self.derive_token(aid, salt)
+
+    @staticmethod
+    def _archive_row(c: sqlite3.Connection, aid: str, now: float) -> int:
+        """Archive and replace the salt, which revokes the page token."""
+        return c.execute(
+            "UPDATE artifacts SET status='archived', archived_at=?, salt=? WHERE id=?", (now, _new_salt(), aid)
+        ).rowcount
 
     def archive(self, aid: str) -> None:
         with self._tx() as c:
-            if (
-                c.execute(
-                    "UPDATE artifacts SET status='archived', archived_at=?, token=? WHERE id=?",
-                    (time.time(), secrets.token_urlsafe(24), aid),
-                ).rowcount
-                == 0
-            ):
+            if self._archive_row(c, aid, time.time()) == 0:
                 raise KeyError(aid)
             self._bump(c)
 
@@ -445,10 +449,7 @@ class Store:
                 (cutoff,),
             ).fetchall()
             for r in rows:
-                c.execute(
-                    "UPDATE artifacts SET status='archived', archived_at=?, token=? WHERE id=?",
-                    (now, secrets.token_urlsafe(24), r["id"]),
-                )
+                self._archive_row(c, r["id"], now)
             if rows:
                 self._bump(c)
         return [r["id"] for r in rows]
@@ -463,14 +464,14 @@ class Store:
             "version": r["version"],
         }
 
+    @staticmethod
+    def _doc_row(c: sqlite3.Connection, aid: str, path: str) -> sqlite3.Row | None:
+        return c.execute("SELECT * FROM docs WHERE artifact_id=? AND path=?", (aid, path)).fetchone()
+
     def get_doc(self, aid: str, path: str) -> dict:
         split_path(path, kind="doc")
-        c = sqlite3.connect(self.path, timeout=10)
-        c.row_factory = sqlite3.Row
-        try:
-            r = c.execute("SELECT * FROM docs WHERE artifact_id=? AND path=?", (aid, path)).fetchone()
-        finally:
-            c.close()
+        with self._read() as c:
+            r = self._doc_row(c, aid, path)
         if r is None:
             return {"id": path.rsplit("/", 1)[-1], "path": path, "exists": False, "data": None}
         return self._row_doc(r)
@@ -478,7 +479,7 @@ class Store:
     def _write(self, c: sqlite3.Connection, aid: str, path: str, data: dict, *, mode: str) -> None:
         segs = split_path(path, kind="doc")
         coll = "/".join(segs[:-1])
-        row = c.execute("SELECT * FROM docs WHERE artifact_id=? AND path=?", (aid, path)).fetchone()
+        row = self._doc_row(c, aid, path)
         now = time.time()
         if mode == "update":
             if row is None:
@@ -539,12 +540,8 @@ class Store:
         split_path(path, kind="collection")
         filters = filters or []
         _check_query(filters, order_by, limit)
-        c = sqlite3.connect(self.path, timeout=10)
-        c.row_factory = sqlite3.Row
-        try:
+        with self._read() as c:
             rows = c.execute("SELECT * FROM docs WHERE artifact_id=? AND collection=?", (aid, path)).fetchall()
-        finally:
-            c.close()
         docs = [self._row_doc(r) for r in rows]
         docs = [d for d in docs if all(_match(d["data"], f, o, v) for f, o, v in filters)]
         docs.sort(key=lambda d: d["id"])  # default order: doc id asc
@@ -560,11 +557,11 @@ class Store:
         split_path(path, kind="doc")
         if not isinstance(holder, str) or not holder:
             raise DbError("invalid_argument", "holder is required")
-        ttl = 30000 if not ttl_ms else min(max(int(ttl_ms), 1000), 600000)
+        ttl = DEFAULT_LEASE_MS if not ttl_ms else min(max(int(ttl_ms), MIN_LEASE_MS), MAX_LEASE_MS)
         now = time.time()
         with self._tx() as c:
             self._require_artifact(c, aid)
-            row = c.execute("SELECT * FROM docs WHERE artifact_id=? AND path=?", (aid, path)).fetchone()
+            row = self._doc_row(c, aid, path)
             busy = (
                 row is not None
                 and row["lease_holder"]
@@ -580,24 +577,17 @@ class Store:
                 "UPDATE docs SET lease_holder=?, lease_expires=? WHERE artifact_id=? AND path=?",
                 (holder, exp, aid, path),
             )
-            ver = c.execute("SELECT version FROM docs WHERE artifact_id=? AND path=?", (aid, path)).fetchone()[0]
+            ver = self._doc_row(c, aid, path)["version"]
             return {"acquired": True, "version": ver, "expiresAt": _iso(exp), "holder": holder}
 
     # ------------------------------------------------ bulk (read/export)
     def dump_docs(self, aid: str) -> dict[str, dict]:
-        c = sqlite3.connect(self.path, timeout=10)
-        c.row_factory = sqlite3.Row
-        try:
+        with self._read() as c:
             rows = c.execute("SELECT path,data FROM docs WHERE artifact_id=? ORDER BY path", (aid,)).fetchall()
-        finally:
-            c.close()
         return {r["path"]: json.loads(r["data"]) for r in rows}
 
     def export_all(self) -> dict:
-        out = []
-        for a in self.list_artifacts():
-            full = self.get_artifact(a["id"])
-            full.pop("token")
-            full["docs"] = self.dump_docs(a["id"])
-            out.append(full)
-        return {"exported_at": _iso(time.time()), "artifacts": out}
+        artifacts = self.list_artifacts(full=True)
+        for a in artifacts:
+            a["docs"] = self.dump_docs(a["id"])
+        return {"exported_at": _iso(time.time()), "artifacts": artifacts}

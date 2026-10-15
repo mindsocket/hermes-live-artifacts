@@ -20,8 +20,10 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from .server import tools as _tools
+from .server.store import hermes_home
 from .server.tools import TOOLS, store
 
 logger = logging.getLogger("hermes_live_artifacts")
@@ -49,9 +51,7 @@ def resolve_link_secret(value: Any, listen_host: str, base_url: str) -> bool:
     if v in _SECRET_NEVER:
         return False
     if v != "auto":
-        logger.warning("link_secret=%r invalid; using 'auto'", value)
-    from urllib.parse import urlsplit
-
+        raise ValueError(f"link_secret={value!r} is invalid; use auto, always or never")
     pub = (urlsplit(base_url).hostname or "") if base_url else ""
     return listen_host not in LOOPBACK_HOSTS or pub not in LOOPBACK_HOSTS
 
@@ -70,22 +70,12 @@ def read_settings(get_config: Callable[[str, Any], Any], env: dict | None = None
             val = get_config(key, default)
         out[key] = int(val) if key == "listen_port" else (val if val is not None else default)
     if out["listen_process"] not in ("gateway", "any", "none"):
-        logger.warning("listen_process=%r invalid; using 'gateway'", out["listen_process"])
-        out["listen_process"] = "gateway"
+        raise ValueError(f"listen_process={out['listen_process']!r} is invalid; use gateway, any or none")
     out["link_secret"] = resolve_link_secret(out["link_secret"], out["listen_host"], out["base_url"])
     if not out["base_url"]:
         host = out["listen_host"] if out["listen_host"] != "tailscale" else "TAILSCALE_IP"
         out["base_url"] = f"http://{host}:{out['listen_port']}"
     return out
-
-
-def _hermes_home() -> Path:
-    try:
-        from hermes_constants import get_hermes_home
-
-        return Path(get_hermes_home())
-    except Exception:
-        return Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
 
 
 def in_gateway() -> bool:
@@ -96,9 +86,9 @@ def in_gateway() -> bool:
     restart. The gateway can load plugins before it rewrites gateway.pid, so this may be False at register()
     even in the real gateway; the Listener gate waits for it. A missing or unreadable file means False."""
     try:
-        rec = json.loads((_hermes_home() / "gateway.pid").read_text())
+        rec = json.loads((hermes_home() / "gateway.pid").read_text())
         return int(rec.get("pid")) == os.getpid()
-    except Exception:
+    except (OSError, ValueError, TypeError, AttributeError):
         return False
 
 

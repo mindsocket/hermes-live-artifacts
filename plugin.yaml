@@ -1,5 +1,5 @@
 name: hermes-live-artifacts
-version: "0.0.3"
+version: "0.1.0"
 description: Interactive HTML artifacts (forms, review lists) with persisted input, served over your tailnet or loopback
 kind: standalone
 platforms:

@@ -24,8 +24,7 @@ Hermes CLI / Cron Sessions ──────────┘          ▲
 ### Components
 
 1. **Agent Toolset (`artifacts`)**:
-   - `artifact_create`, `artifact_update`, `artifact_read`, `artifact_list`, `artifact_db_write`, `artifact_archive`, `artifact_delete`, `artifact_export`.
-   - Discovered through Hermes's tool search or loaded directly into agent contexts.
+   - The `artifact_*` tools listed in the README, plus the skills under `src/hermes_live_artifacts/skills/`.
 2. **SQLite Document Store (`store.py`)**:
    - Manages artifact metadata and a Firestore-style hierarchical document database (`docs` table).
    - Operates in WAL mode with short immediate transactions and per-call connections for multi-process safety.
@@ -35,7 +34,7 @@ Hermes CLI / Cron Sessions ──────────┘          ▲
 4. **Client Runtime Shim (`shim.js`)**:
    - Injected into artifact HTML at load time.
    - Emulates Claude's artifact runtime contract 0.2.75 (`window.claude.use('db')`, `downloads`, `mcp`).
-   - Handles client-side debouncing, sequential write queues, and session submit triggers.
+   - Queues each page's writes in call order and provides `claude.submit()`.
 
 ---
 
@@ -50,13 +49,10 @@ The HTTP listener runs inside the **messaging gateway process** (`ai.hermes.gate
 - **Non-Gateway Processes**: CLI, cron, and subagents load the tools only. They read and write directly to the shared SQLite database file.
 - **Supervision**: When running inside the gateway, the listener is supervised on the gateway's asyncio event loop. If loaded in a non-async process with `listen_process: any`, it falls back to a background daemon thread.
 
-### Configuration (`plugin.yaml` & `HERMES_LIVE_ARTIFACTS_*`)
+### Configuration
 
-- `listen_host`: Bind address (`127.0.0.1`, specific IP, or `tailscale` to resolve the node's Tailscale IPv4).
-- `listen_port`: Bind port (default `47318`).
-- `listen_process`: `gateway` (default), `any` (first to bind wins), or `none` (headless tools only).
-- `base_url`: Public origin used in links returned to agents (e.g., `https://my-node.tailnet.ts.net:47318`).
-- `link_secret`: `auto` (default), `always`, or `never`. Determines whether capability tokens (`?k=...`) are attached to links.
+Keys, defaults and the `HERMES_LIVE_ARTIFACTS_<KEY>` environment overrides are listed in the README
+(Configuration) and declared in `plugin.yaml`. An invalid `link_secret` or `listen_process` fails plugin load.
 
 ---
 
@@ -68,11 +64,11 @@ Storage lives in `$HERMES_HOME/plugin-data/hermes-live-artifacts/artifacts.db` (
 
 1. **`artifacts` Table**:
    - `id`: 22-character URL-safe string from a random UUIDv4.
-   - `title`, `html`, `capabilities` (JSON), `mcp_allowlist` (JSON).
+   - `title`, `html`, `capabilities` (JSON).
    - `origin_session`: Captured from Hermes gateway session context (`current_session_key()`).
    - `wake`: Boolean flag indicating whether submit events should trigger an agent turn.
    - `status`: `active`, `submitted`, or `archived`.
-   - `token`: Capability bearer token for authenticating page loads and API requests.
+   - `salt`: Random per-artifact salt. The page/API token is derived from it with the installation key, so only the salt is stored and replacing it revokes the token.
    - Timestamps: `created_at`, `updated_at`, `submitted_at`, `last_write_at`, `archived_at`.
 
 2. **`docs` Table**:
@@ -89,19 +85,12 @@ Storage lives in `$HERMES_HOME/plugin-data/hermes-live-artifacts/artifacts.db` (
 
 The client environment aims for source compatibility with **Claude artifact runtime contract 0.2.75**:
 
-| Capability | Status | Implementation Details |
-| :--- | :--- | :--- |
-| `db` | **Supported** | Full Firestore-style document API (`collection`, `doc`, `get`, `set`, `update`, `delete`, `query`, `onSnapshot`). Backed by SQLite. |
-| `user` | **Stub (Constant)** | Single-user stub: `isOwner()`, `canEdit()`, `can()` resolve `true`. `me()` returns the operator identity. Stable `id()` enables `/data/users/<id>` path patterns. |
-| `downloads` | **Supported** | `save({filename, data})` triggers browser file downloads. |
-| `mcp` | **Supported** | `callTool` and `server(name).tool(input)` mapped through Hermes `ctx.call_mcp`. Gated by artifact manifest declarations and operator `mcp_allowlist`. |
-| `permissions` | **Stub** | Reports declared capabilities as granted; never blocks with prompts. |
-| `artifact` / `self` | **Stub** | Rejects with `not_granted`. Page updates occur via agent tools (`artifact_update`). |
-| `room`, `comments` | **Unsupported** | Resolves `null`. Pages degrade gracefully as required by the contract. |
+Which capabilities are implemented, stubbed or absent, and how they differ from Claude's, is in
+[compatibility.md](compatibility.md). `mcp` calls are mapped through Hermes `ctx.call_mcp`.
 
 ### Autosave vs. Submit
 
-- **Autosave**: As the user interacts with the artifact, `window.claude.use('db')` writes documents directly to SQLite. Changes are debounced and queued in order.
+- **Autosave**: As the user interacts with the artifact, `window.claude.use('db')` writes documents directly to SQLite. The shim queues one page's writes in call order.
 - **Submit**: Calling `claude.submit()` sets a reserved document `meta/status` with `status: "submitted"`. 
 - **Session Injection**: When an artifact with an `origin_session` is submitted and `wake` is true, the server invokes Hermes's `ctx.inject_message` to push an `[artifact submitted]` block directly into the creating session.
 
@@ -116,14 +105,17 @@ All artifacts are hosted under a single origin (the gateway listener's hostname)
    - This assigns each page an **opaque origin** (`origin: null`).
    - Pages cannot access `localStorage`, `sessionStorage`, `IndexedDB`, or cookies.
    - A page cannot read another artifact's page: `/a/*` responses carry no CORS headers, and a sandboxed page has no credentials to send.
-   - The API is different: it answers `Access-Control-Allow-Origin: *` (the page's origin is `null`, so no narrower value is possible). The browser therefore does not stop a page calling another artifact's `/api/<id>/*`; the per-artifact token is the only barrier.
+   - The API answers `Access-Control-Allow-Origin: *`, so the browser does not stop a page calling another artifact's `/api/<id>/*`; the per-artifact token is the only barrier (SECURITY.md §3.4).
+   - The header is built in `app.py` (`CSP`); `sandbox` is the last directive.
 2. **Capability Token Header (`x-artifact`)**:
    - Every API call to `/api/<id>/*` must include the header `x-artifact: <token>`.
-   - The custom header makes the browser send a CORS preflight (`OPTIONS`). The server answers every preflight with 204 and the CORS headers without checking anything; the token is checked on the real request that follows.
-   - A compromised or hostile artifact cannot make requests to other artifacts' endpoints.
-3. **Link Access & Expiry**:
-   - `link_secret: always`: Links carry `?k=<token>`. On first open, the token is exchanged for an `HttpOnly`, `SameSite=Lax` cookie scoped strictly to `/a/<id>`, and stripped from the URL.
-   - `link_secret: never`: The 22-character unguessable ID is the bearer grant (recommended for private tailnets).
+   - The token is derived per artifact (SECURITY.md §3.2) and a page contains only its own, so a hostile artifact cannot authenticate to another's endpoints.
+3. **Link access** (`link_secret`; the response matrix is SECURITY.md §3.3):
+   - `always`: Links carry `?k=<token>`. On first open, the token is exchanged for an `HttpOnly`, `SameSite=Lax` cookie scoped strictly to `/a/<id>`, and stripped from the URL.
+   - `never`: The 22-character unguessable ID is the bearer grant (reasonable on a private tailnet).
+   - `auto` (default): `always` unless both the bind address and `base_url` are loopback.
+   - Legacy 12-character ids are guessable, so they always require the secret.
+   - There is no sign-in; access is by possession of the link. Revoke by archiving.
 4. **MCP Allowlisting**:
    - Double-gated: Artifacts must declare server/tool pairs in `capabilities.mcp`, and the operator must explicitly allow the server under `plugins.entries.hermes-live-artifacts.mcp_allowlist`.
 

@@ -30,9 +30,8 @@ session, pushes the submitted data back into that session. Claude pages do not u
 
 ## Agent side: not compatible, by design
 
-Claude's artifact tools are not part of the artifact API, so they are not carried over. The equivalents here are
-`artifact_create`, `artifact_update`, `artifact_read`, `artifact_list`, `artifact_db_write`, `artifact_archive`,
-`artifact_delete` and `artifact_export`.
+Claude's artifact tools are not part of the artifact API, so they are not carried over. The equivalents here are the
+`artifact_*` tools listed in the README.
 
 Migrating an artifact means: copy its HTML into `artifact_create` (or `artifact_update` on an existing artifact),
 then seed its database documents with `artifact_db_write`. The skills under `src/hermes_live_artifacts/skills/` teach the
@@ -45,23 +44,14 @@ These follow from the design (single user, self-hosted, one origin), not from mi
 - **One user.** `user.id()` is a constant, `can()` and `isOwner()` are true, and `name()` returns a fixed value.
   Pages that branch on a missing user id take a different path here.
 - **One origin, sandboxed pages.** All artifacts are served from one hostname, whereas Claude gives each its own
-  origin. Here each page is served in a CSP sandbox with an opaque origin, so it cannot read cookies or other
-  artifacts' pages, and the API accepts only the calling artifact's own token (sent in a header, embedded in its
-  own page). **[tested]** `test_one_artifacts_token_cannot_reach_another`, `test_page_is_sandboxed_with_opaque_origin`.
+  origin. Here each page is served in a CSP sandbox with an opaque origin and calls the API with a per-artifact
+  token (design in architecture.md). **[tested]** `test_one_artifacts_token_cannot_reach_another`,
+  `test_page_is_sandboxed_with_opaque_origin`.
   The cost: `localStorage`, `sessionStorage`, IndexedDB and cookies are unavailable to pages (they throw
   `SecurityError`, whereas they work in Claude). Pages keep state in `db`, which autosave makes natural.
   Checked in Chrome only; other browsers are untested.
-- **Links and security.** Page access is configured with `link_secret`:
-  - `never`: the URL is `/a/<id>` with a random id. Whoever has the URL can
-    open the page, so this suits a private network such as a tailnet. Revoke by archiving.
-  - `always`: the link also carries a secret, `?k=<token>`, exchanged for a path-scoped cookie and removed from the
-    address bar. Rotating the token revokes it.
-  - `auto` (default): `always` unless both the bind address and `base_url` are loopback.
-  Artifacts created by early versions have 12-character ids and always keep the secret.
-  Not provided: sign-in. The listener has no user authentication, unlike the Hermes dashboard (which requires a
-  provider on any non-loopback bind). Anyone who can reach the port and holds a link can read and write that
-  artifact; a page's MCP access is limited to its declared tools and the operator's `mcp_allowlist`. Do not expose the
-  listener to the public internet (no Funnel).
+- **No sign-in, access by link.** Page access depends on possession of a link rather than a user account. Modes and
+  limits are in the README (Security) and architecture.md.
 - **Autosave, not submit.** Pages write to `db` as the user edits. `claude.submit()` only adds the push to the
   creating session. **[tested]** `test_submit_triggers_status_and_hook`
 - **Content Security Policy.** Each page is served with a policy that uses the same script, style and font allowlist
@@ -73,8 +63,11 @@ These follow from the design (single user, self-hosted, one origin), not from mi
   30-second poll as a fallback.
 - **Limits.** Documents are capped at 256 KiB and an artifact holds at most 25,000 documents. These match the
   contract's values. **[tested]** `store.py` enforces both.
-- **Error codes.** We emit `invalid_argument`, `quota_exceeded`, `revoked`, `unavailable` and `not_granted`. We do
-  not emit `resource_exhausted` or `upstream_error`. Pages should treat any unknown code as a generic failure.
+- **Error codes.** Errors reject with a `code`. The `db` API emits `invalid_argument`, `quota_exceeded` and `revoked`;
+  the shim adds `unavailable` (the request failed), `not_granted` and `capability_removed`; `mcp` adds `bad_request`,
+  `not_in_manifest`, `blocked_by_policy`, `approval_required`, `server_not_connected`, `server_unavailable`,
+  `tool_error` and `upstream_error`. We do not emit `resource_exhausted`. Pages should treat any unknown code as a
+  generic failure.
 - **Update in place.** `artifact_update` replaces the HTML and keeps the database. There is no version history.
   Pages must tolerate documents written by an older version of themselves. **[tested]**
   `test_update_in_place_visible_on_reload`
@@ -87,8 +80,3 @@ These follow from the design (single user, self-hosted, one origin), not from mi
   `capability_removed`.
 - Calls on `artifact` or `self` reject with `not_granted`.
 - Anything listed as not implemented resolves `null`, so a page that checks before use degrades cleanly.
-
-## Verifying a page
-
-Page JavaScript has no automated browser tests. Changes to the shim or to a page need a manual check in a real
-browser, on a phone and on a desktop. The server side is covered by `make test`.
