@@ -47,7 +47,7 @@ def test_page_needs_the_token_and_embeds_it(store, art):
         fcsp = f.headers["Content-Security-Policy"]
         assert "connect-src 'self'" in fcsp and "https://cdnjs.cloudflare.com" in fcsp
         assert "fonts.googleapis.com" in fcsp and "worker-src 'self' blob:" in fcsp
-        assert "allow-same-origin" not in fcsp and "allow-popups" not in fcsp
+        assert "allow-same-origin" not in fcsp and "allow-popups-to-escape-sandbox" not in fcsp
         assert "camera=()" in f.headers["Permissions-Policy"]
 
     run(with_client(store, go))
@@ -74,24 +74,19 @@ def test_shell_frame_ancestors_derived_from_base_url(store, art):
     run(with_client(store, go, link_secret=False, base_url="https://node.tail1234.ts.net"))
 
 
-def test_shell_serves_openlink_script_and_page_intercepts_links(store, art):
-    """External links work by shim interception: the shell loads /shell.js (opener), the frame's shim
-    hooks clicks and window.open, and neither widens the frame's sandbox."""
+def test_frame_intercepts_links_and_sandbox_allows_gestured_popups(store, art):
+    """External links work by shim interception: the frame's shim hooks clicks and window.open and opens
+    the tab itself from the user's gesture. allow-popups (without allow-popups-to-escape-sandbox) makes
+    that possible; any popup inherits the sandbox, so it gains nothing the frame lacks."""
 
     async def go(c):
-        shell = await (await c.get(f"/a/{art['id']}")).text()
-        assert '<script src="/shell.js"></script>' in shell
-
-        r = await c.get("/shell.js")
-        assert r.status == 200
-        assert "text/javascript" in r.headers["Content-Type"]
-        assert "open-link" in await r.text()
-
         frame = await (await c.get(f"/a/{art['id']}/frame")).text()
-        assert "open-link" in frame and '"click"' in frame and "preventDefault" in frame
-
-        # the shell CSP still frames only 'self' and still allows no popups in the frame sandbox
-        assert "allow-popups" not in shell
+        assert "openLink" in frame and '"click"' in frame and "preventDefault" in frame
+        r = await c.get(f"/a/{art['id']}/frame")
+        csp = r.headers["Content-Security-Policy"]
+        assert "allow-popups" in csp and "allow-popups-to-escape-sandbox" not in csp
+        shell = await (await c.get(f"/a/{art['id']}")).text()
+        assert "sandbox=" in shell and "allow-popups-to-escape-sandbox" not in shell
 
     run(with_client(store, go, link_secret=False))
 
@@ -259,10 +254,9 @@ def test_page_is_sandboxed_with_opaque_origin(store, art):
         r = await c.get(f"/a/{art['id']}/frame?k={art['token']}")
         csp = r.headers["Content-Security-Policy"]
         assert "sandbox allow-scripts" in csp and "allow-same-origin" not in csp
-        for flag in ("allow-forms", "allow-downloads", "allow-modals"):
+        for flag in ("allow-forms", "allow-downloads", "allow-modals", "allow-popups"):
             assert flag in csp
-        for flag in ("allow-popups", "allow-popups-to-escape-sandbox"):
-            assert flag not in csp
+        assert "allow-popups-to-escape-sandbox" not in csp
 
     run(with_client(store, go))
 

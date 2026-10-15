@@ -44,8 +44,8 @@ These follow from the design (single user, self-hosted, one origin), not from mi
   origin. Each page runs in a CSP sandbox with an opaque origin and calls the API with a per-artifact token
   (design in architecture.md). The cost: `localStorage`, `sessionStorage`, IndexedDB and cookies are unavailable to
   pages (they throw `SecurityError`, whereas they work in Claude). Pages keep state in `db`, which autosave makes
-  natural. The sandbox omits the popup flags; external links still work — the runtime intercepts link clicks and
-  `window.open` and opens http(s) URLs in a new tab (other schemes are refused).
+  natural. External links work: the runtime intercepts link clicks and `window.open` and opens http(s) URLs in a
+  new tab from the user's click; other schemes are refused, with a per-scheme "Open anyway" override.
 - **Access by link, not sign-in.** Page access depends on possession of a link rather than a user account.
   Modes and limits are in the README (Security).
 - **Autosave, not submit.** Pages write to `db` as the user edits. `claude.submit()` only adds the push to the

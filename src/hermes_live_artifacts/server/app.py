@@ -37,7 +37,6 @@ from .store import SUBMIT_DOC, DbError, Store, needs_link_secret
 
 log = logging.getLogger("hermes_live_artifacts")
 SHIM = (Path(__file__).parent / "shim.js").read_text()
-SHELL_JS = (Path(__file__).parent / "shell.js").read_text()
 # POST bodies: one API call carries a path plus one document (256 KiB cap in the validator); anything
 # much larger is a mistake or an attack, so answer 413 before reading it.
 MAX_BODY_BYTES = 300 * 1024
@@ -99,15 +98,16 @@ CSP = (
     "worker-src 'self' blob:; form-action 'self'; frame-src 'self' blob: data:; object-src 'none'; "
     "base-uri 'self'"
 )
-# The artifact document: opaque origin (no allow-same-origin) and NO popup flags — a sandboxed popup
-# cannot be created, so external links work only via the shim's interception (shim.js hooks link clicks
-# and window.open, scheme-checks, and asks our shell to window.open the URL in a real tab; shell.js).
-# Flags kept for ordinary page features: forms, downloads (<a download>, the downloads capability) and
-# modals (confirm() in the downloads shim).
-ARTIFACT_SANDBOX = "sandbox allow-scripts allow-forms allow-downloads allow-modals"
+# The artifact document: opaque origin (no allow-same-origin). allow-popups (without
+# allow-popups-to-escape-sandbox) lets the shim open an external link directly from the user's click —
+# transient user activation does not survive the alternative shell postMessage hop, so the open must
+# happen in a real gesture. Any popup inherits the sandbox (opaque origin, no top navigation), so it
+# can do nothing the frame itself cannot. Remaining trade-off: an artifact may pop up on user clicks
+# (still gesture-gated, never on load) — see docs/security.md. Flags kept for ordinary page features:
+# forms, downloads (<a download>, the downloads capability) and modals (confirm() in the downloads shim).
+ARTIFACT_SANDBOX = "sandbox allow-scripts allow-forms allow-downloads allow-modals allow-popups"
 # The shell is a top-level document we own: it frames only 'self' (the artifact iframe) and may itself be
-# framed by the origins derived from base_url (see frame_ancestors_from). The inline <script> tag loads
-# /shell.js — a 'self' origin script, so no script-src relaxation is needed.
+# framed by the origins derived from base_url (see frame_ancestors_from).
 SHELL_CSP = "default-src 'self'; style-src 'unsafe-inline'; frame-src 'self'; object-src 'none'; base-uri 'self'"
 
 
@@ -130,9 +130,8 @@ def render_shell(a: dict, ancestors: str) -> str:
         f"<title>{a['title']}</title>"
         "<style>html,body{margin:0;height:100%}iframe{display:block;width:100%;height:100%;border:0}"
         "</style>"
-        '<script src="/shell.js"></script>'
         f'</head><body><iframe src="/a/{aid}/frame" title="{a["title"]}"'
-        ' sandbox="allow-scripts allow-forms allow-downloads allow-modals"></iframe>'
+        f' sandbox="{ARTIFACT_SANDBOX.split(" ", 1)[1]}"></iframe>'
         f"</body></html><!-- {aid} {ancestors} -->"
     )
 
@@ -350,15 +349,7 @@ def make_app(
     async def health(_r: web.Request) -> web.Response:
         return web.json_response({"ok": True, "change_seq": store.change_seq()})
 
-    async def shell_js(_r: web.Request) -> web.Response:
-        return web.Response(
-            text=SHELL_JS,
-            content_type="text/javascript",
-            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
-        )
-
     app.router.add_get("/healthz", health)
-    app.router.add_get("/shell.js", shell_js)
     app.router.add_get("/a/{aid}", shell)
     app.router.add_get("/a/{aid}/frame", page)
     app.router.add_get("/api/{aid}/events", events)

@@ -204,13 +204,15 @@
   });
 
   // ------------------------------------------------------- external link opening
-  // The frame's sandbox has no popup flags and self-navigation destroys the page, so plain <a> links
-  // and window.open cannot work unassisted. We intercept both in capture phase, refuse non-http(s)
-  // schemes with a visible notice, and ask the shell (a document we own) to open a real tab. A page
-  // that bypasses this still only has the already-documented self-navigation path (security.md gap 6).
+  // Self-navigation destroys the page (security.md gap 6), so plain <a> links and window.open cannot
+  // work unassisted. We intercept both in capture phase. The sandbox carries allow-popups (without
+  // allow-popups-to-escape-sandbox): a popup opened from the user's click inherits the sandbox, so it
+  // can do nothing the frame itself cannot, and the open happens inside the real gesture — activation
+  // does not survive the alternative shell postMessage hop (measured live). Non-http(s) schemes are
+  // refused with a visible notice; script-bearing schemes are refused outright.
   const OPENABLE = /^https?:\/\//i;
-  // Script-bearing schemes never get an override: a confirmed open is handed to the browser
-  // scheme-blind, so the only safe place to stop them is here.
+  // Script-bearing schemes never get an override: the open is handed to the browser scheme-blind, so
+  // the only safe place to stop them is here.
   const NEVER_OPENABLE = /^(?:javascript|data|vbscript):/i;
   // Non-http(s) schemes (obsidian:, mailto:, …) are refused on first sight with an override banner;
   // an explicit "Open anyway" remembers scheme+host for the page's lifetime.
@@ -223,7 +225,7 @@
       return false;
     }
     if (OPENABLE.test(url)) {
-      parent.postMessage({ type: "open-link", url }, "/");
+      window.open(url, "_blank", "noopener");
       return true;
     }
     let key;
@@ -232,7 +234,7 @@
       key = `${(u.scheme || "").toLowerCase()}:${(u.hostname || "").toLowerCase()}`;
     } catch (_) { return false; }
     if (force || allowedSchemes.has(key)) {
-      parent.postMessage({ type: "open-link", url, confirmed: true }, "/");
+      window.open(url, "_blank", "noopener");
       return true;
     }
     warnRefused(url, key);
