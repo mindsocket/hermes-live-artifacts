@@ -209,11 +209,19 @@
   // schemes with a visible notice, and ask the shell (a document we own) to open a real tab. A page
   // that bypasses this still only has the already-documented self-navigation path (security.md gap 6).
   const OPENABLE = /^https?:\/\//i;
+  // Script-bearing schemes never get an override: a confirmed open is handed to the browser
+  // scheme-blind, so the only safe place to stop them is here.
+  const NEVER_OPENABLE = /^(?:javascript|data|vbscript):/i;
   // Non-http(s) schemes (obsidian:, mailto:, …) are refused on first sight with an override banner;
   // an explicit "Open anyway" remembers scheme+host for the page's lifetime.
   const allowedSchemes = new Set();
   function openLink(url, force) {
     if (typeof url !== "string" || !url) return false;
+    if (NEVER_OPENABLE.test(url)) {
+      console.warn("[artifact] refusing script-bearing URL:", url);
+      notice(`${url.slice(0, 80)} uses a scheme this page is not allowed to open.`, false);
+      return false;
+    }
     if (OPENABLE.test(url)) {
       parent.postMessage({ type: "open-link", url }, "/");
       return true;
@@ -230,8 +238,7 @@
     warnRefused(url, key);
     return false;
   }
-  function warnRefused(url, key) {
-    console.warn("[artifact] non-http(s) URL needs confirmation:", url);
+  function notice(text, showButton, key) {
     let note = document.getElementById("__claude_link_notice");
     if (!note) {
       note = document.createElement("div");
@@ -244,17 +251,25 @@
       document.body.appendChild(note);
     }
     note.textContent = "";
-    const text = document.createElement("span");
-    text.textContent = `This page wants to open a non-web link: ${url}`;
-    const btn = document.createElement("button");
-    btn.textContent = "Open anyway";
-    btn.setAttribute("style", "margin-left:10px;font:inherit;background:#fff;color:#b3261e;border:0;border-radius:6px;padding:4px 10px;cursor:pointer");
-    btn.onclick = () => {
-      allowedSchemes.add(key);
-      openLink(url, true);
-      note.remove();
-    };
-    note.append(text, btn);
+    const span = document.createElement("span");
+    span.textContent = text;
+    note.append(span);
+    if (showButton) {
+      const btn = document.createElement("button");
+      btn.textContent = "Open anyway";
+      btn.setAttribute("style", "margin-left:10px;font:inherit;background:#fff;color:#b3261e;border:0;border-radius:6px;padding:4px 10px;cursor:pointer");
+      btn.onclick = () => {
+        allowedSchemes.add(key);
+        note.remove();
+        openLink(url, true);
+      };
+      note.append(btn);
+    }
+    setTimeout(() => note.remove(), 8000);
+  }
+  function warnRefused(url, key) {
+    console.warn("[artifact] non-http(s) URL needs confirmation:", url);
+    notice(`This page wants to open a non-web link: ${url}`, true, key);
   }
   document.addEventListener(
     "click",
@@ -268,7 +283,9 @@
       if (!href || href.startsWith("#") || a.hasAttribute("download")) return;
       let url;
       try { url = new URL(href, location.href).href; } catch (_) { return; }
-      if (url.startsWith(location.origin + "/")) return; // same-origin: let the browser handle it
+      // No same-origin let-through: location.origin inside the sandboxed frame is the real host
+      // origin (measured live), so a same-host link left to the browser would navigate (and
+      // destroy) the artifact. Route every link through openLink.
       e.preventDefault();
       e.stopPropagation();
       openLink(url);
@@ -286,7 +303,6 @@
       if (!href || href.startsWith("#") || a.hasAttribute("download")) return;
       let url;
       try { url = new URL(href, location.href).href; } catch (_) { return; }
-      if (url.startsWith(location.origin + "/")) return;
       e.preventDefault();
       e.stopPropagation();
       openLink(url);
