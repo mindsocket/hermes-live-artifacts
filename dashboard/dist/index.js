@@ -6,7 +6,7 @@
 
   const { React, hooks, components: C, utils } = SDK;
   const { useState, useEffect, useCallback, useRef } = hooks;
-  const { Card, CardContent, Button, Badge, ConfirmDialog, Toast } = C;
+  const { Badge, Button, ConfirmDialog, Toast } = C;
   const h = React.createElement;
   const API = "/api/plugins/hermes-live-artifacts";
   const POLL_MS = 2000;
@@ -14,11 +14,6 @@
   // fence on top (no allow-same-origin: the embedded page can never touch dashboard storage or cookies).
   // Nested frames inherit these restrictions, so these must cover everything the artifact's own sandbox allows.
   const FRAME_SANDBOX = "allow-scripts allow-forms allow-downloads allow-modals allow-popups";
-  const DEVICES = [
-    { id: "phone", label: "Phone", width: "390px" },
-    { id: "tablet", label: "Tablet", width: "768px" },
-    { id: "desktop", label: "Desktop", width: "100%" },
-  ];
   const FILTERS = ["all", "active", "archived"];
 
   function when(sec) {
@@ -29,55 +24,24 @@
     return status === "archived" ? "outline" : "default";
   }
 
-  function ArtifactRow({ a, selected, onSelect }) {
-    return h(
-      "button",
-      { className: utils.cn("ala-row", selected && "ala-row-selected"), onClick: () => onSelect(a.id) },
-      h("div", { className: "ala-row-title" }, (a.pinned ? "📌 " : "") + a.title),
-      h(
-        "div",
-        { className: "ala-row-meta" },
-        h(Badge, { variant: statusVariant(a.status) }, a.status),
-        h("span", null, a.doc_count + " doc" + (a.doc_count === 1 ? "" : "s")),
-        a.notified_at && h("span", null, "notified " + when(a.notified_at)),
-        h("span", null, when(a.updated_at)),
-      ),
-    );
-  }
-
-  function Preview({ link }) {
-    const [device, setDevice] = useState("desktop");
-    const [nonce, setNonce] = useState(0);
-    const width = DEVICES.find((d) => d.id === device).width;
-    return h(
-      "div",
-      { className: "ala-preview" },
-      h(
-        "div",
-        { className: "ala-toolbar" },
-        DEVICES.map((d) =>
-          h(
-            Button,
-            { key: d.id, size: "sm", variant: d.id === device ? "default" : "outline", onClick: () => setDevice(d.id) },
-            d.label,
-          ),
-        ),
-        h(Button, { size: "sm", variant: "outline", onClick: () => setNonce(nonce + 1) }, "Reload"),
-      ),
-      h(
-        "div",
-        { className: "ala-stage" },
-        h("iframe", {
-          key: link + nonce,
-          className: "ala-frame",
-          style: { width },
-          src: link,
-          sandbox: FRAME_SANDBOX,
-          title: "Artifact preview",
-        }),
-      ),
-    );
-  }
+  const CONFIRMS = {
+    rotate: {
+      title: "Rotate link?",
+      description: "The old link, its page cookie and every open session of this artifact stop working. Open pages will fail with 403 until reloaded from the new link.",
+      confirmLabel: "Rotate",
+    },
+    archive: {
+      title: "Archive artifact?",
+      description: "The page stops serving and its link is revoked. Data is kept.",
+      confirmLabel: "Archive",
+    },
+    delete: {
+      title: "Delete artifact permanently?",
+      description: "The artifact and all of its documents are removed. This cannot be undone.",
+      confirmLabel: "Delete",
+      destructive: true,
+    },
+  };
 
   function Documents({ docs }) {
     const seen = useRef({});
@@ -115,80 +79,164 @@
     );
   }
 
-  function Detail({ detail, onAction }) {
-    const [view, setView] = useState("preview");
-    const a = detail.artifact;
-    const archived = a.status === "archived";
-    const act = (kind) => () => onAction(kind, a, detail);
+  // A plain click copies the link; a modifier click opens the page in a new tab instead.
+  function LinkIcon({ link, onCopy }) {
+    const modified = (e) => e.metaKey || e.ctrlKey || e.shiftKey || e.altKey;
     return h(
-      Card,
-      { className: "ala-detail" },
+      "button",
+      {
+        type: "button",
+        className: "ala-icon-btn",
+        "aria-label": "Copy link",
+        title: "Copy link (⌘/Ctrl/Shift-click opens it in a new tab)",
+        onClick: (e) => (modified(e) ? window.open(link, "_blank", "noopener") : onCopy(link)),
+      },
       h(
-        CardContent,
-        null,
-        h(
-          "div",
-          { className: "ala-head" },
-          h("h2", null, a.title),
-          h(Badge, { variant: statusVariant(a.status) }, a.status),
-        ),
-        h(
-          "dl",
-          { className: "ala-meta" },
-          h("dt", null, "id"), h("dd", null, a.id),
-          h("dt", null, "created"), h("dd", null, when(a.created_at)),
-          h("dt", null, "notified"), h("dd", null, when(a.notified_at)),
-          h("dt", null, "session"), h("dd", null, a.origin_session || "none (CLI/cron)"),
-        ),
-        h(
-          "div",
-          { className: "ala-toolbar" },
-          !archived && h(Button, { size: "sm", variant: "outline", onClick: act("open") }, "Open in new tab"),
-          !archived && h(Button, { size: "sm", variant: "outline", onClick: act("copy") }, "Copy link"),
-          !archived && h(Button, { size: "sm", variant: "outline", onClick: act("pin") }, a.pinned ? "Unpin" : "Pin"),
-          !archived && detail.rotation_available &&
-            h(Button, { size: "sm", variant: "outline", onClick: act("rotate") }, "Rotate link"),
-          !archived && h(Button, { size: "sm", variant: "outline", onClick: act("archive") }, "Archive"),
-          h(Button, { size: "sm", variant: "outline", onClick: act("export") }, "Export JSON"),
-          h(Button, { size: "sm", variant: "destructive", onClick: act("delete") }, "Delete"),
-        ),
-        h(
-          "div",
-          { className: "ala-toolbar" },
-          !archived && h(Button, { size: "sm", variant: view === "preview" ? "default" : "outline", onClick: () => setView("preview") }, "Preview"),
-          h(Button, { size: "sm", variant: view === "docs" || archived ? "default" : "outline", onClick: () => setView("docs") }, "Documents (" + a.doc_count + ")"),
-        ),
-        view === "preview" && !archived && detail.link
-          ? h(Preview, { link: detail.link })
-          : h(Documents, { docs: detail.docs }),
+        "svg",
+        { viewBox: "0 0 24 24", width: 16, height: 16, fill: "none", stroke: "currentColor", strokeWidth: 2,
+          strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true" },
+        h("path", { d: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" }),
+        h("path", { d: "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" }),
       ),
     );
   }
 
-  const CONFIRMS = {
-    rotate: {
-      title: "Rotate link?",
-      description: "The old link, its page cookie and every open session of this artifact stop working. Open pages will fail with 403 until reloaded from the new link.",
-      confirmLabel: "Rotate",
-    },
-    archive: {
-      title: "Archive artifact?",
-      description: "The page stops serving and its link is revoked. Data is kept.",
-      confirmLabel: "Archive",
-    },
-    delete: {
-      title: "Delete artifact permanently?",
-      description: "The artifact and all of its documents are removed. This cannot be undone.",
-      confirmLabel: "Delete",
-      destructive: true,
-    },
-  };
+  function ActionMenu({ items }) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+    useEffect(() => {
+      if (!open) return;
+      const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+      const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
+      document.addEventListener("pointerdown", onDown);
+      document.addEventListener("keydown", onKey);
+      return () => {
+        document.removeEventListener("pointerdown", onDown);
+        document.removeEventListener("keydown", onKey);
+      };
+    }, [open]);
+    return h(
+      "div",
+      { className: "ala-menu", ref },
+      h(
+        "button",
+        {
+          type: "button",
+          className: "ala-icon-btn",
+          "aria-label": "Artifact actions",
+          "aria-haspopup": "menu",
+          "aria-expanded": open,
+          onClick: () => setOpen(!open),
+        },
+        "⋯",
+      ),
+      open &&
+        h(
+          "div",
+          { className: "ala-menu-panel", role: "menu" },
+          items.map((it) =>
+            h(
+              "button",
+              {
+                key: it.label,
+                type: "button",
+                role: "menuitem",
+                className: utils.cn("ala-menu-item", it.destructive && "ala-menu-danger"),
+                onClick: () => { setOpen(false); it.onSelect(); },
+              },
+              it.label,
+            ),
+          ),
+        ),
+    );
+  }
+
+  // One artifact in the list. Selected, it expands into its metadata and controls.
+  function ArtifactCard({ a, selected, detail, view, api }) {
+    const archived = a.status === "archived";
+    const expanded = selected && detail && detail.artifact.id === a.id ? detail : null;
+    const items = [];
+    if (expanded && expanded.link && view === "preview") items.push({ label: "Reload", onSelect: api.reload });
+    if (expanded && !archived && expanded.rotation_available) {
+      items.push({ label: "Rotate link", onSelect: () => api.act("rotate") });
+    }
+    if (expanded) items.push({ label: "Export JSON", onSelect: () => api.act("export") });
+    if (expanded && !archived) items.push({ label: "Archive", onSelect: () => api.act("archive") });
+    if (expanded) items.push({ label: "Delete", destructive: true, onSelect: () => api.act("delete") });
+
+    return h(
+      "div",
+      { className: utils.cn("ala-card", selected && "ala-card-selected") },
+      h(
+        "button",
+        { type: "button", className: "ala-row", "aria-expanded": selected, onClick: () => api.select(a.id) },
+        h("div", { className: "ala-row-title" }, (a.pinned ? "📌 " : "") + a.title),
+        h(
+          "div",
+          { className: "ala-row-meta" },
+          h(Badge, { variant: statusVariant(a.status) }, a.status),
+          h("span", null, a.doc_count + " doc" + (a.doc_count === 1 ? "" : "s")),
+          h("span", null, when(a.updated_at)),
+        ),
+      ),
+      selected &&
+        h(
+          "div",
+          { className: "ala-expand" },
+          expanded &&
+            h(
+              "div",
+              { className: "ala-actions" },
+              expanded.link && h(LinkIcon, { link: expanded.link, onCopy: api.copy }),
+              !archived &&
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    className: "ala-toggle",
+                    "aria-pressed": !!a.pinned,
+                    onClick: () => api.act("pin"),
+                  },
+                  a.pinned ? "Pinned" : "Pin",
+                ),
+              h("span", { className: "ala-spacer" }),
+              h(ActionMenu, { items }),
+            ),
+          expanded &&
+            h(
+              "dl",
+              { className: "ala-meta" },
+              h("dt", null, "id"), h("dd", null, a.id),
+              h("dt", null, "created"), h("dd", null, when(a.created_at)),
+              h("dt", null, "notified"), h("dd", null, when(a.notified_at)),
+              h("dt", null, "session"), h("dd", null, a.origin_session || "none (CLI/cron)"),
+            ),
+          !archived &&
+            h(
+              "div",
+              { className: "ala-seg", role: "group", "aria-label": "View" },
+              h(
+                "button",
+                { type: "button", "aria-pressed": view === "preview", onClick: () => api.setView("preview") },
+                "Preview",
+              ),
+              h(
+                "button",
+                { type: "button", "aria-pressed": view === "docs", onClick: () => api.setView("docs") },
+                "Documents (" + a.doc_count + ")",
+              ),
+            ),
+        ),
+    );
+  }
 
   function ArtifactsPage() {
     const [filter, setFilter] = useState("all");
     const [list, setList] = useState(null);
     const [selected, setSelected] = useState(null);
     const [detail, setDetail] = useState(null);
+    const [view, setView] = useState("preview");
+    const [nonce, setNonce] = useState(0);
     const [error, setError] = useState(null);
     const [confirm, setConfirm] = useState(null);
     const [busy, setBusy] = useState(false);
@@ -249,24 +297,45 @@
       URL.revokeObjectURL(url);
     };
 
-    const onAction = async (kind, a, d) => {
-      if (CONFIRMS[kind]) return setConfirm({ kind, a });
-      try {
-        if (kind === "open") {
-          window.open(d.link, "_blank", "noopener");
-        } else if (kind === "copy") {
-          if (!navigator.clipboard) throw new Error("clipboard unavailable (needs https or localhost)");
-          await navigator.clipboard.writeText(d.link);
-          showToast("Link copied", "success");
-        } else if (kind === "pin") {
-          await call("POST", "/artifacts/" + a.id + "/pin", { pinned: !a.pinned });
-          await refresh();
-        } else if (kind === "export") {
-          await exportJson(a);
+    // The selected artifact's detail, once loaded for this selection.
+    const current = detail && selected && detail.artifact.id === selected ? detail : null;
+
+    const api = {
+      select: (id) => {
+        if (id === selected) {
+          setSelected(null);
+          setDetail(null);
+          return;
         }
-      } catch (e) {
-        showToast(String(e), "error");
-      }
+        setView("preview");
+        setSelected(id);
+      },
+      setView,
+      reload: () => setNonce(nonce + 1),
+      copy: async (link) => {
+        try {
+          if (!navigator.clipboard) throw new Error("clipboard unavailable (needs https or localhost)");
+          await navigator.clipboard.writeText(link);
+          showToast("Link copied", "success");
+        } catch (e) {
+          showToast(String(e), "error");
+        }
+      },
+      act: async (kind) => {
+        if (!current) return;
+        const a = current.artifact;
+        if (CONFIRMS[kind]) return setConfirm({ kind, a });
+        try {
+          if (kind === "pin") {
+            await call("POST", "/artifacts/" + a.id + "/pin", { pinned: !a.pinned });
+            await refresh();
+          } else if (kind === "export") {
+            await exportJson(a);
+          }
+        } catch (e) {
+          showToast(String(e), "error");
+        }
+      },
     };
 
     const runConfirmed = async () => {
@@ -294,6 +363,20 @@
       }
     };
 
+    // The right panel shows content only: the live page, or its documents.
+    let content;
+    if (!selected) content = h("p", { className: "ala-empty" }, "Select an artifact.");
+    else if (!current) content = h("p", { className: "ala-empty" }, "Loading…");
+    else if (view === "preview" && current.link && current.artifact.status !== "archived") {
+      content = h("iframe", {
+        key: current.link + nonce,
+        className: "ala-frame",
+        src: current.link,
+        sandbox: FRAME_SANDBOX,
+        title: "Artifact preview",
+      });
+    } else content = h(Documents, { docs: current.docs });
+
     const cfg = confirm && CONFIRMS[confirm.kind];
     return h(
       "div",
@@ -317,16 +400,17 @@
             : list.length === 0
               ? h("p", { className: "ala-empty" }, "No artifacts.")
               : list.map((a) =>
-                  h(ArtifactRow, { key: a.id, a, selected: a.id === selected, onSelect: setSelected }),
+                  h(ArtifactCard, {
+                    key: a.id,
+                    a,
+                    selected: a.id === selected,
+                    detail: current,
+                    view,
+                    api,
+                  }),
                 ),
         ),
-        h(
-          "div",
-          { className: "ala-main" },
-          detail
-            ? h(Detail, { key: detail.artifact.id, detail, onAction })
-            : h("p", { className: "ala-empty" }, "Select an artifact."),
-        ),
+        h("div", { className: "ala-main" }, content),
       ),
       cfg &&
         h(ConfirmDialog, {
