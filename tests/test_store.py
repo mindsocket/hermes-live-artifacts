@@ -149,6 +149,15 @@ def test_acquire_expiry(store, aid, monkeypatch):
     assert store.acquire(aid, "l/x", "b", 1000)["acquired"]
 
 
+def test_list_puts_pinned_first_then_newest(store):
+    old = store.create_artifact("old", "x")["id"]
+    new = store.create_artifact("new", "x")["id"]
+    store.update_artifact(old, pinned=True)
+    assert [a["id"] for a in store.list_artifacts()] == [old, new]
+    store.update_artifact(old, pinned=False)
+    assert [a["id"] for a in store.list_artifacts()] == [new, old]
+
+
 def test_pin_and_wake_do_not_count_as_an_update(store, aid):
     before = store.get_artifact(aid)["updated_at"]
     store.update_artifact(aid, pinned=True)

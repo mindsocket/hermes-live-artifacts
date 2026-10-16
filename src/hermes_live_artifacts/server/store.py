@@ -376,8 +376,8 @@ class Store:
         return None if r is None else self._artifact_from_row(r)
 
     def list_artifacts(self, status: str | None = None, *, full: bool = False) -> list[dict]:
-        """Newest first. Summaries omit `html` and `token`; `full` keeps `html` (never the token)."""
-        q = "SELECT * FROM artifacts" + (" WHERE status=?" if status else "") + " ORDER BY updated_at DESC"
+        """Pinned first, then newest first. Summaries omit `html` and `token`; `full` keeps `html` (never the token)."""
+        q = "SELECT * FROM artifacts" + (" WHERE status=?" if status else "") + " ORDER BY pinned DESC, updated_at DESC"
         with self._read() as c:
             rows = c.execute(q, (status,) if status else ()).fetchall()
         out = []
