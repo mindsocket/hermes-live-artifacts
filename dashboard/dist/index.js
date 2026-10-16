@@ -143,6 +143,7 @@
         h(
           "div",
           { className: "ala-toolbar" },
+          !archived && h(Button, { size: "sm", variant: "outline", onClick: act("open") }, "Open in new tab"),
           !archived && h(Button, { size: "sm", variant: "outline", onClick: act("copy") }, "Copy link"),
           !archived && h(Button, { size: "sm", variant: "outline", onClick: act("pin") }, a.pinned ? "Unpin" : "Pin"),
           !archived && detail.rotation_available &&
@@ -251,7 +252,9 @@
     const onAction = async (kind, a, d) => {
       if (CONFIRMS[kind]) return setConfirm({ kind, a });
       try {
-        if (kind === "copy") {
+        if (kind === "open") {
+          window.open(d.link, "_blank", "noopener");
+        } else if (kind === "copy") {
           if (!navigator.clipboard) throw new Error("clipboard unavailable (needs https or localhost)");
           await navigator.clipboard.writeText(d.link);
           showToast("Link copied", "success");
