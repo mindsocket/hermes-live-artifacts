@@ -214,6 +214,7 @@ def _check_query(filters: list, order_by: list | None, limit: int | None) -> Non
 
 
 # ---------------------------------------------------------------- store
+CONTENT_FIELDS = frozenset({"title", "html", "capabilities"})
 _UPDATE_ENCODERS = {"title": str, "html": str, "capabilities": json.dumps, "pinned": int, "wake": int}
 
 
@@ -399,8 +400,11 @@ class Store:
             vals.append(_UPDATE_ENCODERS[k](v))
         if not sets:
             return self.get_artifact(aid)
-        sets.append("updated_at=?")
-        vals += [time.time(), aid]
+        # Only content counts as an update: pinning or waking must not reorder the list or read as "edited".
+        if any(fields.get(k) is not None for k in CONTENT_FIELDS):
+            sets.append("updated_at=?")
+            vals.append(time.time())
+        vals.append(aid)
         with self._tx() as c:
             if c.execute(f"UPDATE artifacts SET {', '.join(sets)} WHERE id=?", vals).rowcount == 0:
                 raise KeyError(aid)

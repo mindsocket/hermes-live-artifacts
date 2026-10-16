@@ -149,6 +149,20 @@ def test_acquire_expiry(store, aid, monkeypatch):
     assert store.acquire(aid, "l/x", "b", 1000)["acquired"]
 
 
+def test_pin_and_wake_do_not_count_as_an_update(store, aid):
+    before = store.get_artifact(aid)["updated_at"]
+    store.update_artifact(aid, pinned=True)
+    store.update_artifact(aid, wake=False)
+    a = store.get_artifact(aid)
+    assert a["pinned"] is True and a["wake"] is False and a["updated_at"] == before
+
+
+def test_content_change_counts_as_an_update(store, aid):
+    before = store.get_artifact(aid)["updated_at"]
+    store.update_artifact(aid, title="renamed")
+    assert store.get_artifact(aid)["updated_at"] > before
+
+
 def test_plain_save_does_not_notify(store, aid):
     store.set_doc(aid, "a/b", {"v": 1})
     assert store.get_artifact(aid)["notified_at"] is None
