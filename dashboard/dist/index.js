@@ -6,7 +6,7 @@
 
   const { React, hooks, components: C, utils } = SDK;
   const { useState, useEffect, useCallback, useRef } = hooks;
-  const { Badge, Button, ConfirmDialog, Toast } = C;
+  const { Badge, ConfirmDialog, Toast } = C;
   const h = React.createElement;
   const API = "/api/plugins/hermes-live-artifacts";
   const POLL_MS = 2000;
@@ -16,8 +16,9 @@
   const FRAME_SANDBOX = "allow-scripts allow-forms allow-downloads allow-modals allow-popups";
   const FILTERS = ["all", "active", "archived"];
 
+  // The host's timeAgo takes epoch seconds, which is how the server stores every timestamp.
   function when(sec) {
-    return sec ? utils.timeAgo(sec * 1000) : "—";
+    return sec ? utils.timeAgo(sec) : "—";
   }
 
   function statusVariant(status) {
@@ -80,7 +81,7 @@
   }
 
   // A plain click copies the link; a modifier click opens the page in a new tab instead.
-  function LinkIcon({ link, onCopy }) {
+  function LinkIcon({ onActivate }) {
     const modified = (e) => e.metaKey || e.ctrlKey || e.shiftKey || e.altKey;
     return h(
       "button",
@@ -89,7 +90,7 @@
         className: "ala-icon-btn",
         "aria-label": "Copy link",
         title: "Copy link (⌘/Ctrl/Shift-click opens it in a new tab)",
-        onClick: (e) => (modified(e) ? window.open(link, "_blank", "noopener") : onCopy(link)),
+        onClick: (e) => onActivate(modified(e)),
       },
       h(
         "svg",
@@ -151,57 +152,60 @@
     );
   }
 
-  // One artifact in the list. Selected, it expands into its metadata and controls.
-  function ArtifactCard({ a, selected, detail, view, api }) {
+  // One artifact in the list. Its second row (status, pin, link, menu) is always visible; selecting it
+  // expands the metadata and the preview/documents toggle.
+  function ArtifactCard({ a, selected, detail, view, rotationAvailable, api }) {
     const archived = a.status === "archived";
     const expanded = selected && detail && detail.artifact.id === a.id ? detail : null;
     const items = [];
     if (expanded && expanded.link && view === "preview") items.push({ label: "Reload", onSelect: api.reload });
-    if (expanded && !archived && expanded.rotation_available) {
-      items.push({ label: "Rotate link", onSelect: () => api.act("rotate") });
-    }
-    if (expanded) items.push({ label: "Export JSON", onSelect: () => api.act("export") });
-    if (expanded && !archived) items.push({ label: "Archive", onSelect: () => api.act("archive") });
-    if (expanded) items.push({ label: "Delete", destructive: true, onSelect: () => api.act("delete") });
+    if (!archived && rotationAvailable) items.push({ label: "Rotate link", onSelect: () => api.act("rotate", a) });
+    items.push({ label: "Export JSON", onSelect: () => api.act("export", a) });
+    if (!archived) items.push({ label: "Archive", onSelect: () => api.act("archive", a) });
+    items.push({ label: "Delete", destructive: true, onSelect: () => api.act("delete", a) });
 
     return h(
       "div",
       { className: utils.cn("ala-card", selected && "ala-card-selected") },
       h(
         "button",
-        { type: "button", className: "ala-row", "aria-expanded": selected, onClick: () => api.select(a.id) },
-        h("div", { className: "ala-row-title" }, (a.pinned ? "📌 " : "") + a.title),
+        { type: "button", className: "ala-row-title", "aria-expanded": selected, onClick: () => api.select(a.id) },
+        a.title,
+      ),
+      h(
+        "div",
+        { className: "ala-foot" },
         h(
           "div",
-          { className: "ala-row-meta" },
+          { className: "ala-row-meta", onClick: () => api.select(a.id) },
           h(Badge, { variant: statusVariant(a.status) }, a.status),
           h("span", null, a.doc_count + " doc" + (a.doc_count === 1 ? "" : "s")),
           h("span", null, when(a.updated_at)),
+        ),
+        h(
+          "div",
+          { className: "ala-actions" },
+          !archived &&
+            h(
+              "button",
+              {
+                type: "button",
+                className: utils.cn("ala-pin", a.pinned && "ala-pin-on"),
+                "aria-pressed": !!a.pinned,
+                "aria-label": a.pinned ? "Unpin" : "Pin",
+                title: a.pinned ? "Unpin" : "Pin",
+                onClick: () => api.pin(a),
+              },
+              "📌",
+            ),
+          !archived && h(LinkIcon, { onActivate: (modified) => api.link(a.id, modified) }),
+          h(ActionMenu, { items }),
         ),
       ),
       selected &&
         h(
           "div",
           { className: "ala-expand" },
-          expanded &&
-            h(
-              "div",
-              { className: "ala-actions" },
-              expanded.link && h(LinkIcon, { link: expanded.link, onCopy: api.copy }),
-              !archived &&
-                h(
-                  "button",
-                  {
-                    type: "button",
-                    className: "ala-toggle",
-                    "aria-pressed": !!a.pinned,
-                    onClick: () => api.act("pin"),
-                  },
-                  a.pinned ? "Pinned" : "Pin",
-                ),
-              h("span", { className: "ala-spacer" }),
-              h(ActionMenu, { items }),
-            ),
           expanded &&
             h(
               "dl",
@@ -233,6 +237,7 @@
   function ArtifactsPage() {
     const [filter, setFilter] = useState("all");
     const [list, setList] = useState(null);
+    const [rotationAvailable, setRotationAvailable] = useState(false);
     const [selected, setSelected] = useState(null);
     const [detail, setDetail] = useState(null);
     const [view, setView] = useState("preview");
@@ -247,6 +252,7 @@
       const q = filter === "all" ? "" : "?status=" + filter;
       const res = await SDK.fetchJSON(API + "/artifacts" + q);
       setList(res.artifacts);
+      setRotationAvailable(res.rotation_available);
       seq.current = res.change_seq;
     }, [filter]);
 
@@ -312,27 +318,41 @@
       },
       setView,
       reload: () => setNonce(nonce + 1),
-      copy: async (link) => {
+      act: async (kind, a) => {
+        if (CONFIRMS[kind]) return setConfirm({ kind, a });
         try {
-          if (!navigator.clipboard) throw new Error("clipboard unavailable (needs https or localhost)");
-          await navigator.clipboard.writeText(link);
-          showToast("Link copied", "success");
+          if (kind === "export") await exportJson(a);
         } catch (e) {
           showToast(String(e), "error");
         }
       },
-      act: async (kind) => {
-        if (!current) return;
-        const a = current.artifact;
-        if (CONFIRMS[kind]) return setConfirm({ kind, a });
+      pin: async (a) => {
         try {
-          if (kind === "pin") {
-            await call("POST", "/artifacts/" + a.id + "/pin", { pinned: !a.pinned });
-            await refresh();
-          } else if (kind === "export") {
-            await exportJson(a);
-          }
+          await call("POST", "/artifacts/" + a.id + "/pin", { pinned: !a.pinned });
+          await refresh();
         } catch (e) {
+          showToast(String(e), "error");
+        }
+      },
+      link: async (id, modified) => {
+        // Open the tab before awaiting the link, so the browser still treats it as the user's click.
+        const tab = modified ? window.open("about:blank", "_blank") : null;
+        try {
+          const link =
+            current && current.artifact.id === id
+              ? current.link
+              : (await SDK.fetchJSON(API + "/artifacts/" + encodeURIComponent(id))).link;
+          if (!link) throw new Error("archived artifacts have no link");
+          if (tab) {
+            tab.opener = null;
+            tab.location.href = link;
+            return;
+          }
+          if (!navigator.clipboard) throw new Error("clipboard unavailable (needs https or localhost)");
+          await navigator.clipboard.writeText(link);
+          showToast("Link copied", "success");
+        } catch (e) {
+          if (tab) tab.close();
           showToast(String(e), "error");
         }
       },
@@ -383,9 +403,13 @@
       { className: "ala-page" },
       h(
         "div",
-        { className: "ala-toolbar" },
+        { className: "ala-filters", role: "group", "aria-label": "Status" },
         FILTERS.map((f) =>
-          h(Button, { key: f, size: "sm", variant: f === filter ? "default" : "outline", onClick: () => setFilter(f) }, f),
+          h(
+            "button",
+            { key: f, type: "button", className: "ala-chip", "aria-pressed": f === filter, onClick: () => setFilter(f) },
+            f,
+          ),
         ),
       ),
       error && h("p", { className: "ala-error" }, error),
@@ -406,6 +430,7 @@
                     selected: a.id === selected,
                     detail: current,
                     view,
+                    rotationAvailable,
                     api,
                   }),
                 ),

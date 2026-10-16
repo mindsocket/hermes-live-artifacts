@@ -44,6 +44,12 @@ def test_list_has_doc_count_session_and_never_a_token(art, tools_store):
     [row] = out["artifacts"]
     assert row["id"] == art["id"] and row["doc_count"] == 1 and row["origin_session"] == "sess-1"
     assert "token" not in row and "html" not in row
+    assert out["rotation_available"] is True
+
+
+def test_list_says_when_rotation_is_offered(art, tools_store):
+    tools.configure("https://h.ts.net:47318", link_secret=False)
+    assert admin.list_artifacts(tools_store)["rotation_available"] is False
 
 
 def test_list_filters_by_status(art, tools_store):

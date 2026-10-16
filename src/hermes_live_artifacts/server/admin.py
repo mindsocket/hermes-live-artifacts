@@ -23,6 +23,7 @@ def list_artifacts(st: Store, status: str | None = None) -> dict:
     return {
         "artifacts": [summary(a, counts.get(a["id"], 0)) for a in st.list_artifacts(status)],
         "change_seq": st.change_seq(),
+        "rotation_available": tools.link_secret_enabled(),
     }
 
 
