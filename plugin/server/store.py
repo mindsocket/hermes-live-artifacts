@@ -142,8 +142,11 @@ def needs_link_secret(aid: str, link_secret: bool) -> bool:
 
 
 def new_artifact_id() -> str:
-    """22 URL-safe chars from a random UUIDv4."""
-    return _b64(uuid.uuid4().bytes)
+    """22 URL-safe chars from a random UUIDv4 (never starts with '-' to avoid CLI option syntax)."""
+    while True:
+        aid = _b64(uuid.uuid4().bytes)
+        if not aid.startswith("-"):
+            return aid
 
 
 def merge(base: dict, patch: dict) -> dict:
