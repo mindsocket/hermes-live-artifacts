@@ -17,7 +17,7 @@ def main() -> int:
     res = subprocess.run(["git", "ls-files", "-z"], capture_output=True, check=True)
     tracked_files = [f for f in res.stdout.split(b"\x00") if f]
 
-    temp_dir = Path(tempfile.mkdtemp(prefix="hermes-live-artifacts-validate-"))
+    temp_dir = Path(tempfile.mkdtemp(prefix="live-artifacts-validate-"))
     try:
         for rel_bytes in tracked_files:
             rel_path = Path(rel_bytes.decode("utf-8"))

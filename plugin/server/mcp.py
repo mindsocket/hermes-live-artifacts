@@ -3,7 +3,7 @@
 Two gates, deliberately separate:
   1. The artifact's manifest (`capabilities.mcp.servers = [{server, tools: [...]}]`):
      which (server, tool) pairs this page may call. The agent that writes the page declares it.
-  2. The operator's `plugins.entries.hermes-live-artifacts.mcp_allowlist` in config.yaml, enforced by Hermes inside
+  2. The operator's `plugins.entries.live-artifacts.mcp_allowlist` in config.yaml, enforced by Hermes inside
      `ctx.call_mcp` (default deny, per server). The agent cannot edit this, so it is the real outer gate.
 
 Not implemented (they reject `capability_removed` in the shim): listTools, describeTool, invalidate, watchTool.

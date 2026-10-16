@@ -82,9 +82,9 @@ Set under the plugin's config (see `plugin.yaml` `config_schema`):
     link_secret      auto (default) | always | never; see Security
 
 MCP from pages is off until the operator lists servers in Hermes config under
-`plugins.entries.hermes-live-artifacts.mcp_allowlist` (not a plugin config key).
+`plugins.entries.live-artifacts.mcp_allowlist` (not a plugin config key).
 
-Data lives in `$HERMES_HOME/plugin-data/hermes-live-artifacts/`; backups and the `.secret` key file are covered in
+Data lives in `$HERMES_HOME/plugin-data/live-artifacts/`; backups and the `.secret` key file are covered in
 `docs/security.md`.
 
 ## Security

@@ -87,7 +87,7 @@ The API answers `Access-Control-Allow-Origin: *` and answers every preflight wit
 - **Access log**: disabled on the listener (`AppRunner(access_log=None)`), so query-string tokens are never logged.
 
 ### 3.6 Backups
-`hermes backup` archives the whole Hermes directory, which includes `plugin-data/hermes-live-artifacts/`. The operator has tested that the archive contains both `artifacts.db` and `.secret`. This is a deliberate design choice: the same archive already carries Hermes' auth tokens and other secrets, so it has to be protected as a secret store, and keeping the key with the database is what makes a restore work (a restore without `.secret` would change every token). Do not copy the backup, or `artifacts.db` on its own, to a less-trusted place expecting the HMAC scheme to protect it.
+`hermes backup` archives the whole Hermes directory, which includes `plugin-data/live-artifacts/`. The operator has tested that the archive contains both `artifacts.db` and `.secret`. This is a deliberate design choice: the same archive already carries Hermes' auth tokens and other secrets, so it has to be protected as a secret store, and keeping the key with the database is what makes a restore work (a restore without `.secret` would change every token). Do not copy the backup, or `artifacts.db` on its own, to a less-trusted place expecting the HMAC scheme to protect it.
 
 ---
 

@@ -9,7 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from hermes_live_artifacts.server import admin, tools
+from live_artifacts.server import admin, tools
 
 API_FILE = Path(__file__).resolve().parents[2] / "plugin" / "dashboard" / "plugin_api.py"
 
@@ -25,7 +25,7 @@ def art(tools_store):
 @pytest.fixture
 def client(tools_store, monkeypatch):
     """plugin_api imported from its file, with Hermes' config loader stubbed (hermes_cli is not a test dep)."""
-    cfg = {"plugins": {"entries": {"hermes-live-artifacts": {"settings": {"base_url": "https://h.ts.net:47318"}}}}}
+    cfg = {"plugins": {"entries": {"live-artifacts": {"settings": {"base_url": "https://h.ts.net:47318"}}}}}
     pkg = types.ModuleType("hermes_cli")
     mod = types.ModuleType("hermes_cli.config")
     mod.load_config_readonly = lambda: cfg

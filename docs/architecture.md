@@ -10,7 +10,7 @@ This document describes the technical architecture, runtime model, security boun
 
 ```
 Agent Tools (artifact_create, ...) ──┐
-                                     ├─► SQLite Store (plugin-data/hermes-live-artifacts/artifacts.db)
+                                     ├─► SQLite Store (plugin-data/live-artifacts/artifacts.db)
 Hermes CLI / Cron Sessions ──────────┘          ▲
                                                 │
                           aiohttp Listener ─────┘ (Inside Hermes Gateway Process)
@@ -38,7 +38,7 @@ Hermes CLI / Cron Sessions ──────────┘          ▲
    - Queues each page's writes in call order (notify included) and provides `claude.notify()`.
 5. **Dashboard tab (`plugin/dashboard/`)**:
    - A Hermes dashboard plugin: `manifest.json`, a prebuilt-by-hand `dist/index.js` (plain JS on the host's plugin SDK)
-     and `plugin_api.py`, a FastAPI router mounted at `/api/plugins/hermes-live-artifacts/`.
+     and `plugin_api.py`, a FastAPI router mounted at `/api/plugins/live-artifacts/`.
    - Runs in the dashboard process, not the gateway; both open the same SQLite file. The router is a thin wrapper
      over `server/admin.py` and the `tools` module, which hold the logic and are covered by `tests/test_dashboard.py`.
    - The UI polls `/seq` every 2 s (`change_seq` moves on every write) and refetches when it changes.
@@ -67,7 +67,7 @@ Keys and defaults are listed in the README
 
 ### Schema
 
-Storage lives in `$HERMES_HOME/plugin-data/hermes-live-artifacts/artifacts.db`:
+Storage lives in `$HERMES_HOME/plugin-data/live-artifacts/artifacts.db`:
 
 1. **`artifacts` Table**:
    - `id`: 22-character URL-safe string from a random UUIDv4.
@@ -125,7 +125,7 @@ All artifacts are hosted under a single origin (the gateway listener's hostname)
    - Legacy 12-character ids are guessable, so they always require the secret.
    - There is no sign-in; access is by possession of the link. Revoke by archiving.
 4. **MCP Allowlisting**:
-   - Double-gated: Artifacts must declare server/tool pairs in `capabilities.mcp`, and the operator must explicitly allow the server under `plugins.entries.hermes-live-artifacts.mcp_allowlist`.
+   - Double-gated: Artifacts must declare server/tool pairs in `capabilities.mcp`, and the operator must explicitly allow the server under `plugins.entries.live-artifacts.mcp_allowlist`.
 
 ---
 

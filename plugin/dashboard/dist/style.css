@@ -1,4 +1,4 @@
-/* hermes-live-artifacts dashboard tab */
+/* live-artifacts dashboard tab */
 .ala-page { display: flex; flex-direction: column; gap: 1rem; }
 .ala-layout { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: 1rem; align-items: start; }
 @media (max-width: 800px) { .ala-layout { grid-template-columns: minmax(0, 1fr); } }

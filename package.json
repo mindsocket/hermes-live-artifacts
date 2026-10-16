@@ -1,5 +1,5 @@
 {
-  "name": "hermes-live-artifacts-e2e",
+  "name": "live-artifacts-e2e",
   "private": true,
   "scripts": {
     "test:e2e": "playwright test",

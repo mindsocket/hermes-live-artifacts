@@ -7,10 +7,10 @@ import types
 import aiohttp
 import pytest
 
-import hermes_live_artifacts as plug
-from hermes_live_artifacts.server import tools as t
-from hermes_live_artifacts.server.app import Listener
-from hermes_live_artifacts.server.store import Store
+import live_artifacts as plug
+from live_artifacts.server import tools as t
+from live_artifacts.server.app import Listener
+from live_artifacts.server.store import Store
 
 
 def free_port() -> int:
@@ -172,7 +172,7 @@ def test_large_saved_payload_does_not_reach_the_push(store):
 
 
 def test_register_wires_inject_message(monkeypatch, tmp_path):
-    from hermes_live_artifacts.server.store import Store as _Store
+    from live_artifacts.server.store import Store as _Store
 
     monkeypatch.setattr(plug, "store", lambda: _Store(tmp_path))
     seen = {}
@@ -268,7 +268,7 @@ class FakeCtx:
 
 
 def test_register_tools_only_when_not_listening(monkeypatch, tmp_path):
-    from hermes_live_artifacts.server.store import Store as _Store
+    from live_artifacts.server.store import Store as _Store
 
     monkeypatch.setattr(plug, "store", lambda: _Store(tmp_path))
     ctx = FakeCtx({"listen_process": "none"})
@@ -277,7 +277,7 @@ def test_register_tools_only_when_not_listening(monkeypatch, tmp_path):
 
 
 def test_register_all_skills_with_description(monkeypatch, tmp_path):
-    from hermes_live_artifacts.server.store import Store as _Store
+    from live_artifacts.server.store import Store as _Store
 
     monkeypatch.setattr(plug, "store", lambda: _Store(tmp_path))
     ctx = FakeCtx({"listen_process": "none"})
@@ -289,7 +289,7 @@ def test_register_all_skills_with_description(monkeypatch, tmp_path):
 
 
 def test_register_listens_in_gateway_on_running_loop(monkeypatch, tmp_path):
-    from hermes_live_artifacts.server.store import Store as _Store
+    from live_artifacts.server.store import Store as _Store
 
     monkeypatch.setattr(plug, "store", lambda: _Store(tmp_path))
     ctx = FakeCtx({})
@@ -298,11 +298,11 @@ def test_register_listens_in_gateway_on_running_loop(monkeypatch, tmp_path):
         plug.register(ctx)
 
     asyncio.run(go())
-    assert ctx.spawned == ["hermes-live-artifacts-listener"]
+    assert ctx.spawned == ["live-artifacts-listener"]
 
 
 def test_register_none_never_listens(monkeypatch, tmp_path):
-    from hermes_live_artifacts.server.store import Store as _Store
+    from live_artifacts.server.store import Store as _Store
 
     monkeypatch.setattr(plug, "store", lambda: _Store(tmp_path))
     ctx = FakeCtx({"listen_process": "none"})

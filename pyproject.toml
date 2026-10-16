@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "hermes-live-artifacts"
+name = "live-artifacts"
 version = "0.1.0"
 description = "Interactive HTML artifacts for Hermes: forms and review lists served over a tailnet, with persisted input the agent can read back."
 readme = "README.md"
@@ -26,18 +26,15 @@ dev = [
 # keeps working; see README "Installing".
 [project.entry-points."hermes_agent.plugins"]
 live-artifacts = "live_artifacts:register"
-hermes-live-artifacts = "live_artifacts:register"
 
 [tool.setuptools]
-packages = ["live_artifacts", "hermes_live_artifacts"]
+packages = ["live_artifacts"]
 
 [tool.setuptools.package-dir]
 live_artifacts = "plugin"
-hermes_live_artifacts = "plugin"
 
 [tool.setuptools.package-data]
 live_artifacts = ["server/shim.js", "skills/*/SKILL.md", "plugin.yaml", "dashboard/**/*"]
-hermes_live_artifacts = ["server/shim.js", "skills/*/SKILL.md", "plugin.yaml", "dashboard/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -66,4 +63,4 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["live_artifacts", "hermes_live_artifacts"]
+known-first-party = ["live_artifacts"]

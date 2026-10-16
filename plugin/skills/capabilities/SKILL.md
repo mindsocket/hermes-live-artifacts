@@ -1,13 +1,13 @@
 ---
 name: capabilities
-description: Use before writing the HTML for artifact_create or artifact_update, or when a page needs to store input, read it back, or tell the agent it is ready for review. Covers window.claude capabilities in hermes-live-artifacts, the db API, notify and the push.
+description: Use before writing the HTML for artifact_create or artifact_update, or when a page needs to store input, read it back, or tell the agent it is ready for review. Covers window.claude capabilities in live-artifacts, the db API, notify and the push.
 ---
 
-# Artifact runtime capabilities (hermes-live-artifacts)
+# Artifact runtime capabilities (live-artifacts)
 
 Inspired by Claude's artifact capabilities (runtime contract 0.2.75). The page-side API is compatible; it is cut
 down for one user on a tailnet. Where this file and the 0.2.75 contract differ, this file describes what
-hermes-live-artifacts actually does.
+live-artifacts actually does.
 
 A page declares the capabilities it uses by passing `capabilities: {name: config}` to `artifact_create` (default
 `{db:{}, user:{}}`). Capability namespaces live behind `claude.use(name)`:
@@ -171,7 +171,7 @@ every call (`not_in_manifest`), whatever the page sends.
     const todo = await mcp.server("todoist-ai");             // handle: tools are methods returning the payload
     await todo["complete-tasks"]({ ids: ["123"] });
 
-- The operator must also list the server under `plugins.entries.hermes-live-artifacts.mcp_allowlist` in config.yaml. The
+- The operator must also list the server under `plugins.entries.live-artifacts.mcp_allowlist` in config.yaml. The
   agent cannot change that. Without it every call rejects `blocked_by_policy` and the message names the key. Tell
   the user when you declare a server that is not yet allowed.
 - Branch on the rejection `code`: `not_in_manifest`, `blocked_by_policy`, `server_not_connected`,

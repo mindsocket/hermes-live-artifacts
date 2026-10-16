@@ -1,4 +1,4 @@
-/* hermes-live-artifacts runtime shim. Defines window.claude.use(name), source-compatible with the
+/* live-artifacts runtime shim. Defines window.claude.use(name), source-compatible with the
  * Claude artifact runtime contract (0.2.75) for: db, user, downloads, permissions, artifact, self.
  * Everything else resolves null. Config is injected as window.__ARTIFACT__ = {id, caps}. */
 (() => {
@@ -192,11 +192,11 @@
     state: async (n) => (n === undefined ? granted() : (CFG.caps.includes(n) ? "granted" : "unavailable")),
     request: async () => granted(), manage: async () => {},
   });
-  const stub = Object.freeze(new Proxy({}, { get: () => async () => { throw err("not_granted", "not available in hermes-live-artifacts"); } }));
+  const stub = Object.freeze(new Proxy({}, { get: () => async () => { throw err("not_granted", "not available in live-artifacts"); } }));
 
   // ------------------------------------------------------------------ mcp (callTool + server(); no watch/list/describe)
   // The page's manifest rides in __ARTIFACT__.mcp; the server re-checks every call against the stored manifest.
-  const removed = (name) => () => Promise.reject(err("capability_removed", `${name} is not implemented in hermes-live-artifacts`));
+  const removed = (name) => () => Promise.reject(err("capability_removed", `${name} is not implemented in live-artifacts`));
   const mcpCall = async (server, tool, input, opts) => {
     if (typeof server !== "string" || typeof tool !== "string") throw err("bad_request", "server and tool must be strings");
     if (opts && opts.signal && opts.signal.aborted) throw err("cancelled", "call aborted");

@@ -2,8 +2,8 @@ import sqlite3
 
 import pytest
 
-from hermes_live_artifacts.server import store as store_mod
-from hermes_live_artifacts.server.store import DbError, Store
+from live_artifacts.server import store as store_mod
+from live_artifacts.server.store import DbError, Store
 
 
 @pytest.fixture

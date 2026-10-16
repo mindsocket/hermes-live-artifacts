@@ -3,9 +3,9 @@ name: design
 description: Use before writing the HTML and CSS of an artifact page. Mobile-first layout, what the page frame provides, light and dark theming through tokens, typography, inline SVG diagrams, and what to avoid.
 ---
 
-# Artifact page design (hermes-live-artifacts)
+# Artifact page design (live-artifacts)
 
-Load `hermes-live-artifacts:capabilities` first if the page stores or submits anything. The "What the page frame provides"
+Load `live-artifacts:capabilities` first if the page stores or submits anything. The "What the page frame provides"
 section is the authority on platform behaviour; general web advice applies where it says nothing.
 
 ## What the page frame provides

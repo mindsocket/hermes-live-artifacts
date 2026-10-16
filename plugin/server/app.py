@@ -35,7 +35,7 @@ from aiohttp import web
 from . import mcp as mcp_mod
 from .store import DbError, Store, needs_link_secret
 
-log = logging.getLogger("hermes_live_artifacts")
+log = logging.getLogger("live_artifacts")
 SHIM = (Path(__file__).parent / "shim.js").read_text()
 # POST bodies: one API call carries a path plus one document (256 KiB cap in the validator); anything
 # much larger is a mistake or an attack, so answer 413 before reading it.
@@ -428,11 +428,11 @@ class Listener:
         waited = 0.0
         while not self.gate():
             if waited >= self.gate_timeout_s:
-                log.info("hermes-live-artifacts: gate not satisfied after %.0fs; this process will not listen", waited)
+                log.info("live-artifacts: gate not satisfied after %.0fs; this process will not listen", waited)
                 return False
             await asyncio.sleep(0.5)
             waited += 0.5
-        log.info("hermes-live-artifacts: gate open after %.1fs; binding", waited)
+        log.info("live-artifacts: gate open after %.1fs; binding", waited)
         return True
 
     async def run_forever(self) -> None:
@@ -454,14 +454,12 @@ class Listener:
                 break
             except OSError as e:
                 await runner.cleanup()
-                log.warning(
-                    "hermes-live-artifacts cannot bind %s:%s (%s); retrying in %.0fs", self.host, self.port, e, delay
-                )
+                log.warning("live-artifacts cannot bind %s:%s (%s); retrying in %.0fs", self.host, self.port, e, delay)
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self.RETRY_MAX_S)
-        log.info("hermes-live-artifacts listening on %s", self.bound)
+        log.info("live-artifacts listening on %s", self.bound)
         try:
             await asyncio.Event().wait()
         finally:
             await self.runner.cleanup()
-            log.info("hermes-live-artifacts listener stopped")
+            log.info("live-artifacts listener stopped")

@@ -213,7 +213,7 @@ TOOLS = [
                     "description": "Capability manifest: "
                     "{db:{}, user:{}} by default. To let the page call MCP tools add "
                     "mcp:{servers:[{server:'<configured MCP server>', tools:['<tool>']}]}; the operator must "
-                    "also list the server under plugins.entries.hermes-live-artifacts.mcp_allowlist.",
+                    "also list the server under plugins.entries.live-artifacts.mcp_allowlist.",
                 },
                 "pinned": {"type": "boolean"},
                 "seed": {"type": "object", "description": "{docPath: body} initial docs"},

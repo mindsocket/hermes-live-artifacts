@@ -24,15 +24,8 @@ if "live_artifacts" not in sys.modules:
             sys.modules["live_artifacts"] = mod
             spec.loader.exec_module(mod)
 
-import live_artifacts.server.store as store_mod  # noqa: E402
 import live_artifacts.server.tools as tools  # noqa: E402
 from live_artifacts.server.store import Store  # noqa: E402
-
-# Ensure legacy module name hermes_live_artifacts shares identical module objects
-sys.modules.setdefault("hermes_live_artifacts", sys.modules["live_artifacts"])
-sys.modules.setdefault("hermes_live_artifacts.server", sys.modules["live_artifacts.server"])
-sys.modules.setdefault("hermes_live_artifacts.server.tools", tools)
-sys.modules.setdefault("hermes_live_artifacts.server.store", store_mod)
 
 # Add hermes-agent source if present so session-capture tests can import gateway.session_context
 agent_src = os.environ.get("HERMES_AGENT_SRC")

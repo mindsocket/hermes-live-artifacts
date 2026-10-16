@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-import hermes_live_artifacts.server.tools as tools
+import live_artifacts.server.tools as tools
 
 
 def test_create_records_session_from_gateway_context(monkeypatch, tools_store):

@@ -1,4 +1,4 @@
-"""hermes-live-artifacts plugin entry point.
+"""live-artifacts plugin entry point.
 
 Hosting model. The plugin loads in EVERY Hermes process (CLI, cron, gateway), but the HTTP listener
 should live in exactly one long-lived process: the messaging gateway, which launchd/systemd already
@@ -27,7 +27,7 @@ from .server import tools as _tools
 from .server.store import hermes_home
 from .server.tools import TOOLS, store
 
-logger = logging.getLogger("hermes_live_artifacts")
+logger = logging.getLogger("live_artifacts")
 
 DEFAULTS: dict[str, Any] = {
     "listen_host": "127.0.0.1",  # an IP, or the special value "tailscale" (bind this node's tailnet IPv4)
@@ -131,7 +131,7 @@ def make_notifier(
     st, inject: Callable[..., bool] | None, emit: Callable[..., Any] | None = None
 ) -> Callable[[dict], None]:
     """Hook called (off the event loop) when a page notifies. Always emits the plugin event
-    ``hermes-live-artifacts:notified``. If the artifact remembers the session that created it and wake is on,
+    ``live-artifacts:notified``. If the artifact remembers the session that created it and wake is on,
     pushes a notice there, unless the artifact was pushed for less than NOTIFY_COOLDOWN_S ago. A failed
     delivery is not counted, so the next notify can try again."""
     lock = threading.Lock()
@@ -159,7 +159,7 @@ def make_notifier(
             with lock:
                 last_push.pop(a["id"], None)
             logger.warning(
-                "hermes-live-artifacts: could not push %s to its session (is allow_gateway_injection "
+                "live-artifacts: could not push %s to its session (is allow_gateway_injection "
                 "enabled, and is the session still known to the gateway?)",
                 a["id"],
             )
@@ -206,15 +206,15 @@ def _start_listener(ctx, cfg: dict) -> None:
     except RuntimeError:
         on_loop = False
     logger.info(
-        "hermes-live-artifacts: starting listener task pid=%s mode=%s gate_open=%s on_loop=%s",
+        "live-artifacts: starting listener task pid=%s mode=%s gate_open=%s on_loop=%s",
         os.getpid(),
         cfg["listen_process"],
         in_gateway(),
         on_loop,
     )
     if on_loop:
-        ctx.spawn_task(listener.run_forever(), name="hermes-live-artifacts-listener")
-        logger.info("hermes-live-artifacts: listener supervised on the running loop")
+        ctx.spawn_task(listener.run_forever(), name="live-artifacts-listener")
+        logger.info("live-artifacts: listener supervised on the running loop")
         return
 
     global _thread
@@ -231,7 +231,7 @@ def _start_listener(ctx, cfg: dict) -> None:
         finally:
             lp.close()
 
-    _thread = threading.Thread(target=run, name="hermes-live-artifacts-listener", daemon=True)
+    _thread = threading.Thread(target=run, name="live-artifacts-listener", daemon=True)
     _thread.start()
 
     def unload() -> None:
@@ -242,7 +242,7 @@ def _start_listener(ctx, cfg: dict) -> None:
             _thread.join(timeout=5)
 
     ctx.on_unload(unload)
-    logger.info("hermes-live-artifacts: listener on a daemon thread")
+    logger.info("live-artifacts: listener on a daemon thread")
 
 
 def register(ctx) -> None:
@@ -264,4 +264,4 @@ def register(ctx) -> None:
     if should_listen(cfg["listen_process"]):
         _start_listener(ctx, cfg)
     else:
-        logger.info("hermes-live-artifacts: tools only in this process (listen_process=%s)", cfg["listen_process"])
+        logger.info("live-artifacts: tools only in this process (listen_process=%s)", cfg["listen_process"])

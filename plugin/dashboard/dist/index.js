@@ -1,6 +1,6 @@
 (function () {
   "use strict";
-  // hermes-live-artifacts dashboard tab. Plain JS against the host's plugin SDK: there is no build step.
+  // live-artifacts dashboard tab. Plain JS against the host's plugin SDK: there is no build step.
   const SDK = window.__HERMES_PLUGIN_SDK__;
   if (!SDK || !window.__HERMES_PLUGINS__) return;
 
@@ -8,7 +8,7 @@
   const { useState, useEffect, useCallback, useRef } = hooks;
   const { Badge, ConfirmDialog, Toast } = C;
   const h = React.createElement;
-  const API = "/api/plugins/hermes-live-artifacts";
+  const API = "/api/plugins/live-artifacts";
   const POLL_MS = 2000;
   // The shell and the artifact inside it are separate origins from the dashboard. The sandbox is a second
   // fence on top (no allow-same-origin: the embedded page can never touch dashboard storage or cookies).
@@ -452,5 +452,5 @@
     );
   }
 
-  window.__HERMES_PLUGINS__.register("hermes-live-artifacts", ArtifactsPage);
+  window.__HERMES_PLUGINS__.register("live-artifacts", ArtifactsPage);
 })();

@@ -5,8 +5,8 @@ import sqlite3
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from hermes_live_artifacts.server import mcp as mcp_mod
-from hermes_live_artifacts.server.app import make_app
+from live_artifacts.server import mcp as mcp_mod
+from live_artifacts.server.app import make_app
 
 
 @pytest.fixture
@@ -430,7 +430,7 @@ def test_mcp_operator_allowlist_refusal_maps_to_blocked_by_policy(store):
 
     def call(*x, **k):
         raise PermissionError(
-            "Plugin 'hermes-live-artifacts' is not allowed to call MCP server 'todo'. Add it to plugins.entries.x.mcp_allowlist"
+            "Plugin 'live-artifacts' is not allowed to call MCP server 'todo'. Add it to plugins.entries.x.mcp_allowlist"
         )
 
     async def go(c):

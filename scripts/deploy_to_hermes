@@ -14,11 +14,7 @@ git diff --quiet --cached || { echo "staged changes exist; commit first"; exit 1
 dirty=$(git diff --name-only; git ls-files --others --exclude-standard)
 [[ -z "$dirty" ]] || echo "note: uncommitted/untracked files not included: $(echo "$dirty" | head -5 | tr '\n' ' ')"
 
-if hermes plugins list | grep -q "^[│ ]*live-artifacts"; then
-  hermes plugins update live-artifacts
-else
-  hermes plugins update hermes-live-artifacts
-fi
+hermes plugins update live-artifacts
 hermes gateway restart
 
 # wait for the listener to come back

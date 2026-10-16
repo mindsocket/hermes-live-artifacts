@@ -1,8 +1,8 @@
-"""Dashboard backend for the Artifacts tab, mounted at /api/plugins/hermes-live-artifacts/.
+"""Dashboard backend for the Artifacts tab, mounted at /api/plugins/live-artifacts/.
 
 Runs in the dashboard process, a different process from the gateway that hosts the artifact listener. Both open
 the same SQLite file (WAL), so this reads and writes the store directly; the heavy lifting is in
-`hermes_live_artifacts.server.admin`. Auth is the dashboard's own session auth, applied before any route here.
+`live_artifacts.server.admin`. Auth is the dashboard's own session auth, applied before any route here.
 """
 
 from __future__ import annotations
@@ -23,29 +23,23 @@ try:
     from live_artifacts import read_settings
     from live_artifacts.server import admin, tools
 except ImportError:
-    try:
-        from hermes_live_artifacts import read_settings
-        from hermes_live_artifacts.server import admin, tools
-    except ImportError:
-        import importlib.util
+    import importlib.util
 
-        spec = importlib.util.spec_from_file_location("live_artifacts", str(Path(_PLUGIN_DIR) / "__init__.py"))
-        if spec and spec.loader:
-            _mod = importlib.util.module_from_spec(spec)
-            sys.modules.setdefault("live_artifacts", _mod)
-            spec.loader.exec_module(_mod)
-            read_settings = _mod.read_settings
-        from server import admin, tools
+    spec = importlib.util.spec_from_file_location("live_artifacts", str(Path(_PLUGIN_DIR) / "__init__.py"))
+    if spec and spec.loader:
+        _mod = importlib.util.module_from_spec(spec)
+        sys.modules.setdefault("live_artifacts", _mod)
+        spec.loader.exec_module(_mod)
+        read_settings = _mod.read_settings
+    from server import admin, tools
 
 PLUGIN_ID = "live-artifacts"
-LEGACY_PLUGIN_ID = "hermes-live-artifacts"
 
 router = APIRouter()
 
 
 def _configure() -> None:
-    entries = ((load_config_readonly() or {}).get("plugins") or {}).get("entries", {}) or {}
-    entry = entries.get(PLUGIN_ID) or entries.get(LEGACY_PLUGIN_ID) or {}
+    entry = ((load_config_readonly() or {}).get("plugins") or {}).get("entries", {}).get(PLUGIN_ID) or {}
     settings = entry.get("settings") or {}
     cfg = read_settings(lambda key, default: settings.get(key, default))
     tools.configure(base_url=cfg["base_url"], link_secret=cfg["link_secret"])
