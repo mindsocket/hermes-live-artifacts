@@ -15,8 +15,6 @@ dev = ["pytest>=8"]
 
 [dependency-groups]
 dev = [
-    "fastapi==0.133.1",
-    "httpx>=0.28.1",
     "pytest>=8",
     "ruff>=0.15.0",
 ]
@@ -35,7 +33,7 @@ hermes_live_artifacts = ["server/shim.js", "skills/*/SKILL.md"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "--import-mode=importlib -p no:cacheprovider"
+addopts = "--import-mode=importlib -p no:cacheprovider --ignore=tests/dashboard"
 
 [tool.ruff]
 line-length = 120

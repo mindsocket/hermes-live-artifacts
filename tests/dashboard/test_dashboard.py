@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from hermes_live_artifacts.server import admin, tools
 
-API_FILE = Path(__file__).resolve().parent.parent / "dashboard" / "plugin_api.py"
+API_FILE = Path(__file__).resolve().parents[2] / "dashboard" / "plugin_api.py"
 
 
 @pytest.fixture

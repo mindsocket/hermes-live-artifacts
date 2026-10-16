@@ -12,6 +12,7 @@ docs/compatibility.md before touching `shim.js` or the skills, and docs/architec
     uv run ruff format --check         # check formatting (run `uv run ruff format` to fix)
     uv run python scripts/validate.py  # validate plugin structure and manifest (isolated check)
     bun install && bun run test:e2e    # browser tests (Playwright, installed Chrome); a separate run, not part of pytest
+    scripts/test_dashboard             # dashboard backend tests; run in the Hermes agent venv (needs FastAPI)
 
 ## Layout and import rules
 

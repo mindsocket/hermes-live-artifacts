@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Dashboard backend tests. They need FastAPI and the Hermes config loader, which only the Hermes agent venv
+# provides, so they run there rather than in this project's environment (which must not depend on either).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+PY="${HERMES_AGENT_PY:-$HOME/.hermes/hermes-agent/venv/bin/python}"
+exec "$PY" -m pytest -o addopts="--import-mode=importlib -p no:cacheprovider" tests/dashboard "$@"
