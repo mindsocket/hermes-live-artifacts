@@ -24,7 +24,7 @@ Hermes CLI / Cron Sessions ──────────┘          ▲
 ### Components
 
 1. **Agent Toolset (`artifacts`)**:
-   - The `artifact_*` tools listed in the README, plus the skills under `src/hermes_live_artifacts/skills/`.
+   - The `artifact_*` tools listed in the README, plus the skills under `plugin/skills/`.
 2. **SQLite Document Store (`store.py`)**:
    - Manages artifact metadata and a Firestore-style hierarchical document database (`docs` table).
    - Operates in WAL mode with short immediate transactions and per-call connections for multi-process safety.
@@ -36,7 +36,7 @@ Hermes CLI / Cron Sessions ──────────┘          ▲
    - Injected into artifact HTML at load time.
    - Emulates Claude's artifact runtime contract 0.2.75 (`window.claude.use('db')`, `downloads`, `mcp`).
    - Queues each page's writes in call order (notify included) and provides `claude.notify()`.
-5. **Dashboard tab (`dashboard/`)**:
+5. **Dashboard tab (`plugin/dashboard/`)**:
    - A Hermes dashboard plugin: `manifest.json`, a prebuilt-by-hand `dist/index.js` (plain JS on the host's plugin SDK)
      and `plugin_api.py`, a FastAPI router mounted at `/api/plugins/hermes-live-artifacts/`.
    - Runs in the dashboard process, not the gateway; both open the same SQLite file. The router is a thin wrapper

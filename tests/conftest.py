@@ -6,8 +6,33 @@ from pathlib import Path
 
 import pytest
 
-from hermes_live_artifacts.server import tools
-from hermes_live_artifacts.server.store import Store
+_PLUGIN = Path(__file__).resolve().parent.parent / "plugin"
+if str(_PLUGIN) not in sys.path:
+    sys.path.insert(0, str(_PLUGIN))
+
+if "live_artifacts" not in sys.modules:
+    try:
+        import live_artifacts  # noqa: F401
+    except ImportError:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "live_artifacts", str(_PLUGIN / "__init__.py"), submodule_search_locations=[str(_PLUGIN)]
+        )
+        if spec and spec.loader:
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules["live_artifacts"] = mod
+            spec.loader.exec_module(mod)
+
+import live_artifacts.server.store as store_mod  # noqa: E402
+import live_artifacts.server.tools as tools  # noqa: E402
+from live_artifacts.server.store import Store  # noqa: E402
+
+# Ensure legacy module name hermes_live_artifacts shares identical module objects
+sys.modules.setdefault("hermes_live_artifacts", sys.modules["live_artifacts"])
+sys.modules.setdefault("hermes_live_artifacts.server", sys.modules["live_artifacts.server"])
+sys.modules.setdefault("hermes_live_artifacts.server.tools", tools)
+sys.modules.setdefault("hermes_live_artifacts.server.store", store_mod)
 
 # Add hermes-agent source if present so session-capture tests can import gateway.session_context
 agent_src = os.environ.get("HERMES_AGENT_SRC")

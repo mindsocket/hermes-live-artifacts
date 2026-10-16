@@ -8,7 +8,10 @@ version = "0.1.0"
 description = "Interactive HTML artifacts for Hermes: forms and review lists served over a tailnet, with persisted input the agent can read back."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["aiohttp>=3.9,<4"]
+dependencies = [
+    "aiohttp>=3.9,<4",
+    "rich>=13.0.0",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
@@ -19,20 +22,26 @@ dev = [
     "ruff>=0.15.0",
 ]
 
-# Pip-installed plugins are discovered through this group. The directory-plugin route (plugin.yaml at the
-# repo root) keeps working; see README "Installing".
+# Pip-installed plugins are discovered through this group. The directory-plugin route (plugin/plugin.yaml)
+# keeps working; see README "Installing".
 [project.entry-points."hermes_agent.plugins"]
-hermes-live-artifacts = "hermes_live_artifacts:register"
+live-artifacts = "live_artifacts:register"
+hermes-live-artifacts = "live_artifacts:register"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.setuptools]
+packages = ["live_artifacts", "hermes_live_artifacts"]
+
+[tool.setuptools.package-dir]
+live_artifacts = "plugin"
+hermes_live_artifacts = "plugin"
 
 [tool.setuptools.package-data]
-hermes_live_artifacts = ["server/shim.js", "skills/*/SKILL.md"]
+live_artifacts = ["server/shim.js", "skills/*/SKILL.md", "plugin.yaml", "dashboard/**/*"]
+hermes_live_artifacts = ["server/shim.js", "skills/*/SKILL.md", "plugin.yaml", "dashboard/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["."]
 addopts = "--import-mode=importlib -p no:cacheprovider --ignore=tests/dashboard"
 
 [tool.ruff]
@@ -57,4 +66,4 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["hermes_live_artifacts"]
+known-first-party = ["live_artifacts", "hermes_live_artifacts"]

@@ -8,7 +8,7 @@ so every external link and window.open died with RangeError before a popup opene
 
 from pathlib import Path
 
-SHIM = Path(__file__).parent.parent / "src" / "hermes_live_artifacts" / "server" / "shim.js"
+SHIM = Path(__file__).parent.parent / "plugin" / "server" / "shim.js"
 
 
 def source() -> str:

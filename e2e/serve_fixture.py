@@ -15,10 +15,10 @@ from pathlib import Path
 from aiohttp import web
 
 ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(ROOT.parent / "src"))
+sys.path.insert(0, str(ROOT.parent / "plugin"))
 
-from hermes_live_artifacts.server.app import make_app  # noqa: E402
-from hermes_live_artifacts.server.store import Store  # noqa: E402
+from live_artifacts.server.app import make_app  # noqa: E402
+from live_artifacts.server.store import Store  # noqa: E402
 
 
 def build(port: int) -> web.Application:

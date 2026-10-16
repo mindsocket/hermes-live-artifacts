@@ -74,7 +74,11 @@ def hermes_home() -> Path:
 
 
 def default_data_dir() -> Path:
-    return hermes_home() / "plugin-data" / "hermes-live-artifacts"
+    new_dir = hermes_home() / "plugin-data" / "live-artifacts"
+    legacy_dir = hermes_home() / "plugin-data" / "hermes-live-artifacts"
+    if not new_dir.exists() and legacy_dir.exists():
+        return legacy_dir
+    return new_dir
 
 
 def _b64(b: bytes) -> str:

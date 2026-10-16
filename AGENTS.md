@@ -16,12 +16,11 @@ docs/compatibility.md before touching `shim.js` or the skills, and docs/architec
 
 ## Layout and import rules
 
-- Code is the `hermes_live_artifacts` package in `src/`. The repo-root `__init__.py` is only a loader shim for the
-  directory-plugin route; keep it to absolute imports (pytest also collects it, outside any package).
+- Code and plugin assets live in the `plugin/` directory (`plugin/plugin.yaml`, `plugin/__init__.py`, `plugin/cli.py`, `plugin/server/`, `plugin/skills/`, and `plugin/dashboard/`).
 - Packaging and dependencies are managed via `uv` and `pyproject.toml` (with `uv.lock`). Dev dependencies (pytest, ruff) live in `[dependency-groups] dev`.
 - Inside the package use relative imports (`from .server import tools`).
-- `server/shim.js` is read at import time and served inline to every page. Changing it changes every artifact.
-- Skills are data for the agent, registered from `src/hermes_live_artifacts/skills/*/SKILL.md` with description and
+- `plugin/server/shim.js` is read at import time and served inline to every page. Changing it changes every artifact.
+- Skills are data for the agent, registered from `plugin/skills/*/SKILL.md` with description and
   frontmatter parsed by `_skill_frontmatter`. Frontmatter must stay `key: value` lines.
 
 ## Rules that exist because of past bugs

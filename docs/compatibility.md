@@ -32,7 +32,7 @@ Claude's artifact tools are not part of the artifact API, so they are not carrie
 `artifact_*` tools listed in the README.
 
 Migrating an artifact means: copy its HTML into `artifact_create` (or `artifact_update` on an existing artifact),
-then seed its database documents with `artifact_db_write`. The skills under `src/hermes_live_artifacts/skills/` teach the
+then seed its database documents with `artifact_db_write`. The skills under `plugin/skills/` teach the
 agent this spelling.
 
 ## Differences

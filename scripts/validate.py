@@ -25,7 +25,7 @@ def main() -> int:
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(rel_path, dest)
 
-        cmd = ["hermes", "plugins", "validate", str(temp_dir)]
+        cmd = ["hermes", "plugins", "validate", str(temp_dir / "plugin")]
         print(f"Running: {' '.join(cmd)}")
         proc = subprocess.run(cmd)
         return proc.returncode

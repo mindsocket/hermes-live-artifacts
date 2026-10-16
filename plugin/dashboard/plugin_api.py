@@ -13,23 +13,39 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-# The package lives in ../src (see the repo-root __init__.py, which does the same for the plugin proper).
-_SRC = str(Path(__file__).resolve().parent.parent / "src")
-if _SRC not in sys.path:
-    sys.path.insert(0, _SRC)
+_PLUGIN_DIR = str(Path(__file__).resolve().parent.parent)
+if _PLUGIN_DIR not in sys.path:
+    sys.path.insert(0, _PLUGIN_DIR)
 
 from hermes_cli.config import load_config_readonly  # noqa: E402
 
-from hermes_live_artifacts import read_settings  # noqa: E402
-from hermes_live_artifacts.server import admin, tools  # noqa: E402
+try:
+    from live_artifacts import read_settings
+    from live_artifacts.server import admin, tools
+except ImportError:
+    try:
+        from hermes_live_artifacts import read_settings
+        from hermes_live_artifacts.server import admin, tools
+    except ImportError:
+        import importlib.util
 
-PLUGIN_ID = "hermes-live-artifacts"
+        spec = importlib.util.spec_from_file_location("live_artifacts", str(Path(_PLUGIN_DIR) / "__init__.py"))
+        if spec and spec.loader:
+            _mod = importlib.util.module_from_spec(spec)
+            sys.modules.setdefault("live_artifacts", _mod)
+            spec.loader.exec_module(_mod)
+            read_settings = _mod.read_settings
+        from server import admin, tools
+
+PLUGIN_ID = "live-artifacts"
+LEGACY_PLUGIN_ID = "hermes-live-artifacts"
 
 router = APIRouter()
 
 
 def _configure() -> None:
-    entry = ((load_config_readonly() or {}).get("plugins") or {}).get("entries", {}).get(PLUGIN_ID) or {}
+    entries = ((load_config_readonly() or {}).get("plugins") or {}).get("entries", {}) or {}
+    entry = entries.get(PLUGIN_ID) or entries.get(LEGACY_PLUGIN_ID) or {}
     settings = entry.get("settings") or {}
     cfg = read_settings(lambda key, default: settings.get(key, default))
     tools.configure(base_url=cfg["base_url"], link_secret=cfg["link_secret"])

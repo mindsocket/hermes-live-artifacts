@@ -258,6 +258,9 @@ def register(ctx) -> None:
                 # Pass description + frontmatter so the skill shows in <available_skills> with its trigger text.
                 fm = _skill_frontmatter(md)
                 ctx.register_skill(child.name, md, str(fm.get("description", "")), fm)
+    from .cli import register_cli
+
+    register_cli(ctx)
     if should_listen(cfg["listen_process"]):
         _start_listener(ctx, cfg)
     else:

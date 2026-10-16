@@ -32,31 +32,44 @@ Status: working spike, being hardened.
     artifact_read(id)                  status plus every document
     artifact_list / artifact_db_write / artifact_archive / artifact_delete / artifact_export
 
+## CLI commands
+
+The plugin registers `hermes live-artifacts` for managing artifacts from the terminal:
+
+    hermes live-artifacts list [--status active|archived] [--json]
+    hermes live-artifacts show <id> [--data] [--json]
+    hermes live-artifacts link <id> [--rotate] [--json]
+    hermes live-artifacts open <id>
+    hermes live-artifacts archive <id> [--json]
+    hermes live-artifacts delete <id> [-y] [--json]
+    hermes live-artifacts export <id> [--out <file.json>]
+
+Output renders as Rich tables/panels in interactive terminals, or clean JSON with `--json`.
+
 ## Dashboard tab
 
-`dashboard/` adds an **Artifacts** tab to the Hermes dashboard: list by status, a device-sized preview of the page, a
+`plugin/dashboard/` adds an **Artifacts** tab to the Hermes dashboard: list by status, a device-sized preview of the page, a
 live view of its documents (refreshes as the page autosaves), and copy link / rotate link / pin / archive / delete /
-export JSON. It needs no build step. The backend (`dashboard/plugin_api.py`) runs in the dashboard process and reads
+export JSON. It needs no build step. The backend (`plugin/dashboard/plugin_api.py`) runs in the dashboard process and reads
 the same SQLite file as the gateway. Rotate is not offered (and the API refuses it) when `link_secret` is `never`. Restart the dashboard after
 updating the plugin.
 
 ## Skills
 
-Loaded by the agent as `hermes-live-artifacts:capabilities` and `:design`. Inspired by Claude's artifact capabilities and
-design guidance; written for this plugin. Sources: `src/hermes_live_artifacts/skills/`.
+Loaded by the agent as `live-artifacts:capabilities` and `:design`. Inspired by Claude's artifact capabilities and
+design guidance; written for this plugin. Sources: `plugin/skills/`.
 
 ## Installing
 
-Directory plugin (what is used today):
+Directory plugin:
 
-    hermes plugins install /path/to/hermes-live-artifacts      # or: hermes plugins update hermes-live-artifacts
-    hermes gateway restart                                     # the listener lives in the gateway
+    hermes plugins install /path/to/hermes-live-artifacts#plugin      # or: hermes plugins update live-artifacts
+    hermes gateway restart                                           # the listener lives in the gateway
 
-The repo root holds `plugin.yaml` and a small `__init__.py` shim that puts `src/` on the path; the code is the
-`hermes_live_artifacts` package under `src/`.
+The plugin assets sit in the `plugin/` directory (`plugin/plugin.yaml`).
 
 Pip route (declared, not yet exercised): `pip install .` registers the `hermes_agent.plugins` entry point
-`hermes-live-artifacts = hermes_live_artifacts:register`.
+`live-artifacts = live_artifacts:register`.
 
 ## Configuration
 
