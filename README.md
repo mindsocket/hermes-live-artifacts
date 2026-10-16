@@ -111,7 +111,7 @@ There is no sign-in. Access is by possession of the link, so treat the listener 
     uv run ruff check                  # lint checks
     uv run ruff format --check         # check code formatting
     uv run python scripts/validate.py  # validate plugin manifest and isolation in clean temp directory
-    scripts/deploy_dev                 # install the committed tree and restart the gateway (asks first)
+    scripts/deploy_to_hermes           # install the committed tree and restart the gateway (asks first)
 
 ## More
 

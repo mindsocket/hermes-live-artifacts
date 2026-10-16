@@ -51,7 +51,7 @@ docs/compatibility.md before touching `shim.js` or the skills, and docs/architec
 - Do not commit or push unless asked. **Restarting the gateway is a user-approved action** — it drops in-flight
   runs and briefly takes the listener down — so never do it as a side effect of other work; ask first.
 - Dev loop for running code (the listener runs the installed copy, not this checkout): after a commit, run
-  `scripts/deploy_dev` — it installs the committed tree and restarts the gateway with confirmation first.
+  `scripts/deploy_to_hermes` — it installs the committed tree and restarts the gateway with confirmation first.
 
 ## Testing notes
 

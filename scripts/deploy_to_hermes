@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Dev deploy: install the current committed tree into Hermes and restart the gateway.
+# Deploy to Hermes: install the current committed tree into Hermes and restart the gateway.
 # The listener runs the installed copy, not this checkout, so changes are invisible until this runs.
 # The gateway restart drops in-flight runs; pass --yes to skip the confirmation.
 set -euo pipefail
