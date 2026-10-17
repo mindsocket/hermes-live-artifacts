@@ -77,15 +77,23 @@ test("clicking a link opens it in a new tab and leaves the artifact in place", a
   const { app } = await open(page);
   const popup = page.waitForEvent("popup");
   await app.locator("#link").click();
-  await expect((await popup).url()).toContain("/__e2e/landing");
+  expect((await popup).url()).toContain("/__e2e/landing");
   await expect(app.locator("#snapshot")).toBeVisible();
+});
+
+test("a link's own click handler still runs when the shim routes the link", async ({ page }) => {
+  const { app } = await open(page);
+  const popup = page.waitForEvent("popup");
+  await app.locator("#tapped").click();
+  await expect(app.locator("#taps")).toHaveText("1");
+  expect((await popup).url()).toContain("/__e2e/landing");
 });
 
 test("window.open opens a new tab", async ({ page }) => {
   const { app } = await open(page);
   const popup = page.waitForEvent("popup");
   await app.locator("#open").click();
-  await expect((await popup).url()).toContain("/__e2e/landing");
+  expect((await popup).url()).toContain("/__e2e/landing");
 });
 
 test("the page runs sandboxed: no web storage", async ({ page }) => {

@@ -10,6 +10,8 @@
   <button id="bad">Bad path</button>
   <pre id="result"></pre>
   <a id="link" href="/__e2e/landing">link</a>
+  <a id="tapped" href="/__e2e/landing">tapped</a>
+  <pre id="taps">0</pre>
   <button id="open">Open</button>
   <pre id="snapshot">waiting</pre>
   <pre id="sandbox"></pre>
@@ -31,6 +33,7 @@
         db.collection("items").add({ n: 1 }).then((ref) => (result.textContent = ref.id));
       document.getElementById("bad").onclick = () =>
         db.doc("bad").set({}).catch((e) => (result.textContent = e.code));
+      document.getElementById("tapped").addEventListener("click", () => (document.getElementById("taps").textContent = "1"));
       document.getElementById("open").onclick = () => window.open(new URL("/__e2e/landing", location.href).href);
       let storage;
       try { storage = String(localStorage.length); } catch (e) { storage = e.name; }

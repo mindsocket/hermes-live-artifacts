@@ -302,8 +302,8 @@
       // No same-origin let-through: location.origin inside the sandboxed frame is the real host
       // origin (measured live), so a same-host link left to the browser would navigate (and
       // destroy) the artifact. Route every link through openLink.
+      // Not stopPropagation: the page's own link handlers must still run (they are bubble-phase listeners).
       e.preventDefault();
-      e.stopPropagation();
       openLink(url);
     },
     true
@@ -320,7 +320,6 @@
       let url;
       try { url = new URL(href, location.href).href; } catch (_) { return; }
       e.preventDefault();
-      e.stopPropagation();
       openLink(url);
     },
     true
