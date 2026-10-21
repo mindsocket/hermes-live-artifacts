@@ -119,3 +119,7 @@ There is no sign-in. Access is by possession of the link, so treat the listener 
 - [docs/security.md](docs/security.md): threat model and known gaps.
 - [docs/compatibility.md](docs/compatibility.md): how the page API differs from Claude's.
 - [AGENTS.md](AGENTS.md): repository layout, conventions and pitfalls for contributors.
+
+## License
+
+[MIT](LICENSE)
