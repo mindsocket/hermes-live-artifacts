@@ -2,7 +2,9 @@ import asyncio
 import json
 import os
 import socket
+import sys
 import types
+from pathlib import Path
 
 import aiohttp
 import pytest
@@ -89,7 +91,7 @@ def make(store, **kw):
 
 def test_push_is_a_notice_without_page_chosen_strings(store):
     """The push carries no title and no document data, so nothing from the web page enters the session
-    as an injected message; the agent reads it with artifact_read instead."""
+    as an injected message; the agent reads it with live_artifact_read instead."""
     a = make(store, origin_session="agent:main:telegram:group:1:2")
     sent, events = [], []
     plug.make_notifier(store, lambda c, **k: sent.append((c, k)) or True, lambda e, p: events.append((e, p)))(a)
@@ -97,7 +99,7 @@ def test_push_is_a_notice_without_page_chosen_strings(store):
     ((content, kw),) = sent
     assert kw == {"session_key": "agent:main:telegram:group:1:2"}
     assert content.startswith("[artifact notified]")
-    assert a["id"] in content and "1 document" in content and "artifact_read" in content
+    assert a["id"] in content and "1 document" in content and "live_artifact_read" in content
     assert "Trip review" not in content and '"pick"' not in content and "hello" not in content
     assert a["token"] not in content and "form" not in content
 
@@ -168,7 +170,7 @@ def test_large_saved_payload_does_not_reach_the_push(store):
     store.set_doc(a["id"], "big/x", {"blob": "y" * 50000})
     sent = []
     plug.make_notifier(store, lambda c, **k: sent.append(c) or True)(a)
-    assert "artifact_read" in sent[0] and "y" * 100 not in sent[0] and len(sent[0]) < 500
+    assert "live_artifact_read" in sent[0] and "y" * 100 not in sent[0] and len(sent[0]) < 500
 
 
 def test_register_wires_inject_message(monkeypatch, tmp_path):
@@ -343,13 +345,13 @@ def test_listener_gives_up_when_gate_never_opens(tmp_path):
 
 def test_artifact_create_rejects_a_bad_mcp_manifest_and_accepts_a_good_one(tools_store):
     bad = json.loads(
-        t.artifact_create(
+        t.live_artifact_create(
             {"title": "x", "html": "<p/>", "capabilities": {"db": {}, "mcp": {"servers": [{"server": "a"}]}}}
         )
     )
     assert bad["ok"] is False and "tools" in bad["error"]
     good = json.loads(
-        t.artifact_create(
+        t.live_artifact_create(
             {
                 "title": "x",
                 "html": "<p/>",
@@ -358,7 +360,7 @@ def test_artifact_create_rejects_a_bad_mcp_manifest_and_accepts_a_good_one(tools
         )
     )
     assert good["ok"] is True
-    upd = json.loads(t.artifact_update({"id": good["id"], "capabilities": {"mcp": {"servers": []}}}))
+    upd = json.loads(t.live_artifact_update({"id": good["id"], "capabilities": {"mcp": {"servers": []}}}))
     assert upd["ok"] is False
 
 
@@ -394,10 +396,50 @@ def test_invalid_settings_raise():
 
 def test_links_follow_the_setting_and_legacy_ids_keep_the_secret(tools_store):
     t.configure("https://h.ts.net", link_secret=False)
-    a = json.loads(t.artifact_create({"title": "x", "html": "<p/>"}))
+    a = json.loads(t.live_artifact_create({"title": "x", "html": "<p/>"}))
     assert a["link"] == f"https://h.ts.net/a/{a['id']}" and "?k=" not in a["link"]
     t.configure("https://h.ts.net", link_secret=True)
-    assert json.loads(t.artifact_list({}))["artifacts"] and "?k=" in t.link(t.store().get_artifact(a["id"]))
+    assert json.loads(t.live_artifact_list({}))["artifacts"] and "?k=" in t.link(t.store().get_artifact(a["id"]))
     t.configure("https://h.ts.net", link_secret=False)
     legacy = {"id": "old123456789", "token": "tok"}
     assert t.link(legacy).endswith("?k=tok")
+
+
+# ---------------------------------------------------------------- export
+def test_export_defaults_to_the_plugin_exports_dir(tools_store):
+    t.live_artifact_create({"title": "x", "html": "<p/>"})
+    out = json.loads(t.live_artifact_export({}))
+    assert out["ok"] and out["artifacts"] == 1
+    path = Path(out["path"])
+    assert path.parent == t.store().dir / "exports" and path.stat().st_mode & 0o777 == 0o600
+    assert json.loads(path.read_text())["artifacts"][0]["title"] == "x"
+
+
+def _fake_file_safety(monkeypatch, denied=None, approval=False):
+    mod = types.ModuleType("agent.file_safety")
+    mod.get_write_denied_error = lambda p: denied
+    mod.is_write_approval_required = lambda p: approval
+    monkeypatch.setitem(sys.modules, "agent", types.ModuleType("agent"))
+    monkeypatch.setitem(sys.modules, "agent.file_safety", mod)
+
+
+def test_export_custom_path_is_written_when_policy_allows(tools_store, monkeypatch, tmp_path):
+    _fake_file_safety(monkeypatch)
+    target = tmp_path / "out" / "dump.json"
+    out = json.loads(t.live_artifact_export({"path": str(target)}))
+    assert out["ok"] and Path(out["path"]) == target.resolve() and target.exists()
+
+
+@pytest.mark.parametrize("denied,approval", [("Write denied: protected", False), (None, True)])
+def test_export_custom_path_refused_by_policy(tools_store, monkeypatch, tmp_path, denied, approval):
+    _fake_file_safety(monkeypatch, denied=denied, approval=approval)
+    target = tmp_path / "dump.json"
+    out = json.loads(t.live_artifact_export({"path": str(target)}))
+    assert not out["ok"] and not target.exists()
+
+
+def test_export_custom_path_refused_without_hermes_policy(tools_store, monkeypatch, tmp_path):
+    monkeypatch.setitem(sys.modules, "agent.file_safety", None)
+    target = tmp_path / "dump.json"
+    out = json.loads(t.live_artifact_export({"path": str(target)}))
+    assert not out["ok"] and not target.exists()

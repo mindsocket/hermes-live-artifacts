@@ -1,19 +1,20 @@
 name: live-artifacts
 version: "0.1.0"
+requires_hermes: ">=0.21.5"
 description: Interactive HTML artifacts (forms, review lists) with persisted input, served over your tailnet or loopback
 kind: standalone
 platforms:
   - macos
   - linux
 provides_tools:
-  - artifact_create
-  - artifact_update
-  - artifact_list
-  - artifact_read
-  - artifact_db_write
-  - artifact_archive
-  - artifact_delete
-  - artifact_export
+  - live_artifact_create
+  - live_artifact_update
+  - live_artifact_list
+  - live_artifact_read
+  - live_artifact_db_write
+  - live_artifact_archive
+  - live_artifact_delete
+  - live_artifact_export
 python_dependencies:
   - "aiohttp>=3.9,<4"
   - "rich>=13.0.0"

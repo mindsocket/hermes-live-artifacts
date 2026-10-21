@@ -9,11 +9,9 @@ artifact runtime (`window.claude.use("db")` and friends), cut down to one user, 
 here when it only uses the capabilities implemented. Pages that use anything else degrade: `use()` resolves `null`.
 See [docs/compatibility.md](docs/compatibility.md) for what matches, what differs and what is not covered.
 
-Status: working spike, being hardened.
-
 ## How it works
 
-    agent tools (artifact_create ...) --> SQLite store <-- aiohttp listener --> your browser
+    agent tools (live_artifact_create ...) --> SQLite store <-- aiohttp listener --> your browser
                                                               (inside the gateway process)
 
 - The plugin registers `artifact_*` tools and skills.
@@ -23,14 +21,14 @@ Status: working spike, being hardened.
   exchanged for a cookie and dropped from the URL. See [Security](#security).
 - Pages see `window.claude` (injected shim). A db save can carry `{notify: true}`, and `claude.notify()` stands alone:
   either tells the agent the data is ready for review. When the artifact was created from a chat session, the notify
-  pushes a fixed `[artifact notified]` notice into that session; the agent reads the data with `artifact_read`.
+  pushes a fixed `[artifact notified]` notice into that session; the agent reads the data with `live_artifact_read`.
 
 ## Tools
 
-    artifact_create(title, html, capabilities?, pinned?, seed?, wake?)   returns the link and push_on_notify
-    artifact_update(id, html?, ...)    in place; db contents kept
-    artifact_read(id)                  status plus every document
-    artifact_list / artifact_db_write / artifact_archive / artifact_delete / artifact_export
+    live_artifact_create(title, html, capabilities?, pinned?, seed?, wake?)   returns the link and push_on_notify
+    live_artifact_update(id, html?, ...)    in place; db contents kept
+    live_artifact_read(id)                  status plus every document
+    live_artifact_list / live_artifact_db_write / live_artifact_archive / live_artifact_delete / live_artifact_export
 
 ## CLI commands
 
@@ -86,6 +84,19 @@ MCP from pages is off until the operator lists servers in Hermes config under
 
 Data lives in `$HERMES_HOME/plugin-data/live-artifacts/`; backups and the `.secret` key file are covered in
 `docs/security.md`.
+
+## What it does on your machine
+
+- Runs one HTTP listener inside the messaging gateway (default `127.0.0.1:47318`, or your tailnet address with
+  `listen_host: tailscale`). It serves artifact pages and their API; there is no sign-in, see [Security](#security).
+- Stores artifacts and their documents in SQLite at `$HERMES_HOME/plugin-data/live-artifacts/artifacts.db` (0600, directory 0700).
+  Page data is plain rows on disk.
+- When a page saves with `notify`, or calls `claude.notify()`, injects a fixed-template `[artifact notified]` message into
+  the chat session that created the artifact. The message carries no page data; the agent reads it with `live_artifact_read`.
+- `live_artifact_export` writes a JSON dump (including artifact tokens and entered data) to
+  `$HERMES_HOME/plugin-data/live-artifacts/exports/`, or to a `path` the agent supplies if Hermes write policy allows it.
+- A page may call MCP tools only if it declares them and you have allowed that server in plugin config.
+- No telemetry, no outbound network calls, no stored credentials, no hooks or middleware.
 
 ## Security
 

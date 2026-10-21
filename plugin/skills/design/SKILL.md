@@ -10,7 +10,7 @@ section is the authority on platform behaviour; general web advice applies where
 
 ## What the page frame provides
 
-- **Wrapping.** You pass `html` to `artifact_create` or `artifact_update`. A body fragment is wrapped in a doctype, a
+- **Wrapping.** You pass `html` to `live_artifact_create` or `live_artifact_update`. A body fragment is wrapped in a doctype, a
   charset, and a viewport meta with `viewport-fit=cover`, followed by a reset: `color-scheme: light`, `:root` padded by
   the safe-area insets, zero body margin, a 14px system font, `img { max-width: 100% }`, and
   `[hidden] { display: none !important }`. Toggle visibility with `el.hidden`, not `style.display`. A full document
@@ -153,14 +153,14 @@ Numbering, eyebrows and dividers should carry information. Number a list only wh
 
 ## Updating a page that has data
 
-`artifact_update` replaces the HTML and keeps the database. Keep the token block, the structure and the field names,
+`live_artifact_update` replaces the HTML and keeps the database. Keep the token block, the structure and the field names,
 so documents saved by the previous version still render. Treat every field as possibly absent. Give every form control
 a stable `id`, because the page matches stored values to controls by id. An open page does not reload itself; the
 user sees the new version after a reload, and autosaved entries come back with it.
 
 ## Before you create the page
 
-Before `artifact_create`, check the source for the phone-width risks: fixed widths wider than 400px, `100vw`,
+Before `live_artifact_create`, check the source for the phone-width risks: fixed widths wider than 400px, `100vw`,
 `min-width` on flex children with text, literal colours outside the tokens, and a dark block that misses a token.
 
 If the agent has a browser tool available (for example a Hermes browser or Playwright skill), take one look at the

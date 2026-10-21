@@ -9,7 +9,7 @@ This document describes the technical architecture, runtime model, security boun
 `hermes-live-artifacts` allows Hermes agents to publish small, interactive HTML applications (review lists, forms, dashboards, checklists) that users open on phone or desktop over a private network (such as a Tailscale tailnet), enter data, and have that data persisted and pushed back into the originating chat session.
 
 ```
-Agent Tools (artifact_create, ...) ──┐
+Agent Tools (live_artifact_create, ...) ──┐
                                      ├─► SQLite Store (plugin-data/live-artifacts/artifacts.db)
 Hermes CLI / Cron Sessions ──────────┘          ▲
                                                 │

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
+import time
+from pathlib import Path
 from typing import Any
 
 from . import mcp as mcp_mod
@@ -93,7 +96,7 @@ def _capabilities(caps: Any, *, default: dict | None) -> dict | None:
     return caps
 
 
-def artifact_create(args: dict, **_kw) -> str:
+def live_artifact_create(args: dict, **_kw) -> str:
     title, html = args.get("title"), args.get("html")
     if not title or not html:
         return _err("title and html are required")
@@ -113,7 +116,7 @@ def artifact_create(args: dict, **_kw) -> str:
     return _ok(**_summary(a), link=link(a))
 
 
-def artifact_update(args: dict, **_kw) -> str:
+def live_artifact_update(args: dict, **_kw) -> str:
     aid = args.get("id")
     try:
         caps = _capabilities(args.get("capabilities"), default=None)
@@ -132,12 +135,12 @@ def artifact_update(args: dict, **_kw) -> str:
     return _ok(**_summary(a), link=link(a))
 
 
-def artifact_list(args: dict, **_kw) -> str:
+def live_artifact_list(args: dict, **_kw) -> str:
     items = store().list_artifacts(args.get("status"))
     return _ok(artifacts=[_summary(a) for a in items])
 
 
-def artifact_read(args: dict, **_kw) -> str:
+def live_artifact_read(args: dict, **_kw) -> str:
     aid = args.get("id")
     st = store()
     a = st.get_artifact(aid)
@@ -147,7 +150,7 @@ def artifact_read(args: dict, **_kw) -> str:
     return _ok(**_summary(a), docs=docs, doc_count=len(docs))
 
 
-def artifact_db_write(args: dict, **_kw) -> str:
+def live_artifact_db_write(args: dict, **_kw) -> str:
     aid, path, data = args.get("id"), args.get("path"), args.get("data")
     try:
         store().set_doc(aid, path, data)
@@ -156,7 +159,7 @@ def artifact_db_write(args: dict, **_kw) -> str:
     return _ok(path=path)
 
 
-def artifact_archive(args: dict, **_kw) -> str:
+def live_artifact_archive(args: dict, **_kw) -> str:
     try:
         store().archive(args.get("id"))
     except KeyError:
@@ -164,7 +167,7 @@ def artifact_archive(args: dict, **_kw) -> str:
     return _ok(archived=args.get("id"))
 
 
-def artifact_delete(args: dict, **_kw) -> str:
+def live_artifact_delete(args: dict, **_kw) -> str:
     try:
         store().delete(args.get("id"))
     except KeyError:
@@ -172,14 +175,39 @@ def artifact_delete(args: dict, **_kw) -> str:
     return _ok(deleted=args.get("id"))
 
 
-def artifact_export(args: dict, **_kw) -> str:
+def _write_json_atomic(target: Path, dump: dict) -> None:
+    """Write via a 0600 temp sibling and os.replace, so a failure never leaves a truncated target."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(dump, f, indent=2)
+        os.replace(tmp, target)
+    except BaseException:
+        os.unlink(tmp)
+        raise
+
+
+def live_artifact_export(args: dict, **_kw) -> str:
+    """Write every artifact and its docs to JSON. Without `path` the file lands in the plugin's exports directory;
+    a model-supplied `path` must pass Hermes write policy (the export holds artifact tokens and user input)."""
     dump = store().export_all()
     path = args.get("path")
-    if path:
-        with open(os.path.expanduser(path), "w") as f:
-            json.dump(dump, f, indent=2)
-        return _ok(path=path, artifacts=len(dump["artifacts"]))
-    return _ok(**dump)
+    if not path:
+        target = store().dir / "exports" / f"export-{time.strftime('%Y%m%dT%H%M%S')}.json"
+    else:
+        try:
+            from agent.file_safety import get_write_denied_error, is_write_approval_required
+        except ImportError:
+            return _err("custom export paths need Hermes write policy, which is unavailable here; omit `path`")
+        target = Path(path).expanduser().resolve()
+        denied = get_write_denied_error(str(target))
+        if denied:
+            return _err(denied)
+        if is_write_approval_required(str(target)):
+            return _err(f"Write denied: '{target}' needs interactive approval; omit `path` or choose another location")
+    _write_json_atomic(target, dump)
+    return _ok(path=str(target), artifacts=len(dump["artifacts"]))
 
 
 def _schema(name: str, desc: str, props: dict, required: list[str]) -> dict:
@@ -194,9 +222,9 @@ _ID = {"type": "string", "description": "Artifact id"}
 TOOLS = [
     (
         _schema(
-            "artifact_create",
+            "live_artifact_create",
             "Create an interactive HTML artifact (form, review list, dashboard) the user opens by deep link. Input "
-            "is persisted to a per-artifact document DB readable via artifact_read. Page code uses "
+            "is persisted to a per-artifact document DB readable via live_artifact_read. Page code uses "
             "`const db = await claude.use('db')`. A save that should tell the agent the data is ready for review "
             "passes `{notify: true}`, or the page calls `claude.notify()`. Returns the deep link. When created from a "
             "chat session, a notify pushes a notice into that same session (push_on_notify=true in the result), so "
@@ -220,11 +248,11 @@ TOOLS = [
             },
             ["title", "html"],
         ),
-        artifact_create,
+        live_artifact_create,
     ),
     (
         _schema(
-            "artifact_update",
+            "live_artifact_update",
             "Update an artifact in place (db contents are preserved). Returns the link.",
             {
                 "id": _ID,
@@ -236,29 +264,29 @@ TOOLS = [
             },
             ["id"],
         ),
-        artifact_update,
+        live_artifact_update,
     ),
     (
         _schema(
-            "artifact_list",
+            "live_artifact_list",
             "List artifacts (no html/token).",
             {"status": {"type": "string", "enum": ["active", "archived"]}},
             [],
         ),
-        artifact_list,
+        live_artifact_list,
     ),
     (
         _schema(
-            "artifact_read",
+            "live_artifact_read",
             "Read an artifact's status and all db documents (what the user entered).",
             {"id": _ID},
             ["id"],
         ),
-        artifact_read,
+        live_artifact_read,
     ),
     (
         _schema(
-            "artifact_db_write",
+            "live_artifact_db_write",
             "Seed or amend one db document of an artifact (full replace).",
             {
                 "id": _ID,
@@ -267,25 +295,28 @@ TOOLS = [
             },
             ["id", "path", "data"],
         ),
-        artifact_db_write,
+        live_artifact_db_write,
     ),
     (
         _schema(
-            "artifact_archive",
+            "live_artifact_archive",
             "Archive an artifact: hides it and revokes the link; data retained.",
             {"id": _ID},
             ["id"],
         ),
-        artifact_archive,
+        live_artifact_archive,
     ),
-    (_schema("artifact_delete", "Permanently delete an artifact and its data.", {"id": _ID}, ["id"]), artifact_delete),
+    (
+        _schema("live_artifact_delete", "Permanently delete an artifact and its data.", {"id": _ID}, ["id"]),
+        live_artifact_delete,
+    ),
     (
         _schema(
-            "artifact_export",
-            "Dump all artifacts and docs to JSON (to `path` if given).",
+            "live_artifact_export",
+            "Export all artifacts and docs to a JSON file; returns its path. Default location is the plugin's exports directory; `path` is checked against Hermes write policy.",
             {"path": {"type": "string"}},
             [],
         ),
-        artifact_export,
+        live_artifact_export,
     ),
 ]

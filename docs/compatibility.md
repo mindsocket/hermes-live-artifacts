@@ -31,8 +31,8 @@ carries no data. Claude pages do not use this and need not.
 Claude's artifact tools are not part of the artifact API, so they are not carried over. The equivalents here are the
 `artifact_*` tools listed in the README.
 
-Migrating an artifact means: copy its HTML into `artifact_create` (or `artifact_update` on an existing artifact),
-then seed its database documents with `artifact_db_write`. The skills under `plugin/skills/` teach the
+Migrating an artifact means: copy its HTML into `live_artifact_create` (or `live_artifact_update` on an existing artifact),
+then seed its database documents with `live_artifact_db_write`. The skills under `plugin/skills/` teach the
 agent this spelling.
 
 ## Differences
@@ -64,7 +64,7 @@ These follow from the design (single user, self-hosted, one origin), not from mi
   `not_in_manifest`, `blocked_by_policy`, `approval_required`, `server_not_connected`, `server_unavailable`,
   `tool_error` and `upstream_error`. We do not emit `resource_exhausted`. Pages should treat any unknown code as a
   generic failure.
-- **Update in place.** `artifact_update` replaces the HTML and keeps the database. There is no version history.
+- **Update in place.** `live_artifact_update` replaces the HTML and keeps the database. There is no version history.
   Pages must tolerate documents written by an older version of themselves.
 - **Hot reload.** Not implemented. An updated page is seen on the next load.
 

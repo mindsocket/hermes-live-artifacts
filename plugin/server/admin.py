@@ -57,7 +57,7 @@ def rotate_link(st: Store, aid: str) -> str:
 
 
 def export_one(st: Store, aid: str) -> dict:
-    """The same shape `artifact_export` writes, for one artifact."""
+    """The same shape `live_artifact_export` writes, for one artifact."""
     a = next((x for x in st.list_artifacts(full=True) if x["id"] == aid), None)
     if a is None:
         raise KeyError(aid)
