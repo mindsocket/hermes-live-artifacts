@@ -229,7 +229,9 @@ TOOLS = [
             "`const db = await claude.use('db')`. A save that should tell the agent the data is ready for review "
             "passes `{notify: true}`, or the page calls `claude.notify()`. Returns the deep link. When created from a "
             "chat session, a notify pushes a notice into that same session (push_on_notify=true in the result), so "
-            "do not poll: share the link and end your turn. Pass wake=false to opt out.",
+            "do not poll: share the link and end your turn. Pass wake=false to opt out. Call this tool directly with the html "
+            "as a normal string argument; do not wrap it in the generic `tool_call` batch tool, whose `calls` argument is a "
+            "JSON string and breaks on HTML with nested quotes.",
             {
                 "title": {"type": "string"},
                 "html": {"type": "string", "description": "Body HTML or full document"},
