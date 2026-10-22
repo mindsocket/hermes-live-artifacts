@@ -24,7 +24,7 @@ Hermes CLI / Cron Sessions ──────────┘          ▲
 ### Components
 
 1. **Agent Toolset (`artifacts`)**:
-   - The `artifact_*` tools listed in the README, plus the skills under `plugin/skills/`.
+   - The `live_artifact_*` tools listed in the README, plus the skills under `plugin/skills/`.
 2. **SQLite Document Store (`store.py`)**:
    - Manages artifact metadata and a Firestore-style hierarchical document database (`docs` table).
    - Operates in WAL mode with short immediate transactions and per-call connections for multi-process safety.

@@ -223,8 +223,9 @@ TOOLS = [
     (
         _schema(
             "live_artifact_create",
-            "Create an interactive HTML artifact (form, review list, dashboard) the user opens by deep link. Input "
-            "is persisted to a per-artifact document DB readable via live_artifact_read. Page code uses "
+            "Create an interactive HTML artifact (form, review list, dashboard) the user opens by deep link. Before "
+            "writing the html, load the skill `live-artifacts:capabilities` (skill_view, exact name) for the "
+            "page-side db API. Input is persisted to a per-artifact document DB readable via live_artifact_read. Page code uses "
             "`const db = await claude.use('db')`. A save that should tell the agent the data is ready for review "
             "passes `{notify: true}`, or the page calls `claude.notify()`. Returns the deep link. When created from a "
             "chat session, a notify pushes a notice into that same session (push_on_notify=true in the result), so "

@@ -14,7 +14,7 @@ See [docs/compatibility.md](docs/compatibility.md) for what matches, what differ
     agent tools (live_artifact_create ...) --> SQLite store <-- aiohttp listener --> your browser
                                                               (inside the gateway process)
 
-- The plugin registers `artifact_*` tools and skills.
+- The plugin registers `live_artifact_*` tools and skills.
 - One aiohttp listener runs inside the long-lived messaging gateway (other processes load tools only and share the
   SQLite file). It serves `/a/<id>` pages and `/api/<id>/*`.
 - A link is `<base_url>/a/<id>` (22-character random id). With `link_secret: always` it also carries `?k=<token>`, which is
@@ -59,10 +59,11 @@ design guidance; written for this plugin. Sources: `plugin/skills/`.
 
 ## Installing
 
-Directory plugin:
-
-    hermes plugins install /path/to/hermes-live-artifacts#plugin      # or: hermes plugins update live-artifacts
+    hermes plugins install mindsocket/hermes-live-artifacts#plugin --enable
     hermes gateway restart                                           # the listener lives in the gateway
+
+Start a new chat session afterwards; tools load when a session starts. To update: `hermes plugins update live-artifacts`,
+then restart the gateway.
 
 The plugin assets sit in the `plugin/` directory (`plugin/plugin.yaml`).
 

@@ -15,9 +15,6 @@ provides_tools:
   - live_artifact_archive
   - live_artifact_delete
   - live_artifact_export
-python_dependencies:
-  - "aiohttp>=3.9,<4"
-  - "rich>=13.0.0"
 config_schema:
   listen_host:
     type: string

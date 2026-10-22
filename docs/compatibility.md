@@ -29,7 +29,7 @@ carries no data. Claude pages do not use this and need not.
 ## Agent side: not compatible, by design
 
 Claude's artifact tools are not part of the artifact API, so they are not carried over. The equivalents here are the
-`artifact_*` tools listed in the README.
+`live_artifact_*` tools listed in the README.
 
 Migrating an artifact means: copy its HTML into `live_artifact_create` (or `live_artifact_update` on an existing artifact),
 then seed its database documents with `live_artifact_db_write`. The skills under `plugin/skills/` teach the

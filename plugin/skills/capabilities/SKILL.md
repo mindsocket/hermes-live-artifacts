@@ -205,3 +205,6 @@ every call (`not_in_manifest`), whatever the page sends.
 After `live_artifact_create`, call `live_artifact_read(id)` once to confirm the seeded documents have the shape the page expects.
 Then tell the user in one line what was exercised (create, seed read-back) and what was not (a real tap, a notify
 from a phone). A read-back alone does not show that the page works end to end.
+
+A browser test is optional and only worth it for non-trivial page logic. If you do one, open `<link>/frame`: the plain
+link wraps the page in a sandboxed iframe that scripts in the outer page cannot reach.
