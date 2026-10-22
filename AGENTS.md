@@ -42,6 +42,10 @@ docs/compatibility.md before touching `shim.js` or the skills, and docs/architec
 - Compatibility target is Claude runtime contract 0.2.75 (its published type definitions, kept outside this repo).
   A page-side deviation is either documented in docs/compatibility.md or a bug. Agent-side tool names are not part
   of the artifact API and need no compatibility.
+- Naming in user-facing text: say "live artifacts" where the subject is the plugin or the feature (dashboard tab
+  label, plugin description, headings). Where the subject is a single artifact the user is acting on ("Archive
+  artifact?", "No artifacts.", "Select an artifact."), plain "artifact" is right. Don't rename identifiers, routes
+  or API paths.
 - Code style: linting and formatting are enforced by Ruff (Python 3.11 target, line-length 120, configured in `pyproject.toml`). All code must pass `uv run ruff check` and `uv run ruff format --check`.
 - Do not vendor Anthropic's runtime JS, and do not copy its source or its captured output into the repo. Public docs
   describe differences and what a page gets; investigation notes, captures and measurements stay in `tmp/`.

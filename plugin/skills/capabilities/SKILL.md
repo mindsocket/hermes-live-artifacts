@@ -3,7 +3,7 @@ name: capabilities
 description: Use before writing the HTML for live_artifact_create or live_artifact_update, or when a page needs to store input, read it back, or tell the agent it is ready for review. Covers window.claude capabilities in live-artifacts, the db API, notify and the push.
 ---
 
-# Artifact runtime capabilities (live-artifacts)
+# Live artifact runtime capabilities (live-artifacts)
 
 Inspired by Claude's artifact capabilities (runtime contract 0.2.75). The page-side API is compatible; it is cut
 down for one user on a tailnet. Where this file and the 0.2.75 contract differ, this file describes what

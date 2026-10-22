@@ -1,27 +1,29 @@
-# hermes-live-artifacts
-
-A Hermes plugin that lets an agent publish small interactive HTML pages (forms, review lists, dashboards), open them
-by link on your phone or desktop over a tailnet, persist what you enter, and read it back, or have it pushed into the
+# Hermes Live Artifacts - plugin overview
+`live-artifacts` is a Hermes plugin that lets an agent publish small interactive HTML pages (forms, review lists, dashboards), open them
+by link, persist what you enter, and have a notification pushed into the
 chat session that created the page.
 
-This plugin is inspired by Claude artifacts and aims to be compatible with them. The page-side API follows Claude's
-artifact runtime (`window.claude.use("db")` and friends), cut down to one user, so a page written for Claude can move
-here when it only uses the capabilities implemented. Pages that use anything else degrade: `use()` resolves `null`.
-See [docs/compatibility.md](docs/compatibility.md) for what matches, what differs and what is not covered.
+This plugin is inspired by Claude artifacts and aims to be compatible with them. The page-side API follows a reduced set of Claude's
+artifact runtime (`window.claude.use("db")` and friends), cut down to one user. A page written for Claude should be able to move
+to this plugin, with unsupported capabilities degrading gracefully. See [docs/compatibility.md](docs/compatibility.md) for what matches, what differs and what is not covered.
+
+## Installing
+
+    hermes plugins install mindsocket/hermes-live-artifacts#plugin --enable
+    hermes gateway restart
+
+Start a new chat session afterwards; tools load when a session starts. To update: `hermes plugins update live-artifacts`,
+then restart the gateway.
 
 ## How it works
 
     agent tools (live_artifact_create ...) --> SQLite store <-- aiohttp listener --> your browser
                                                               (inside the gateway process)
 
-- The plugin registers `live_artifact_*` tools and skills.
-- One aiohttp listener runs inside the long-lived messaging gateway (other processes load tools only and share the
-  SQLite file). It serves `/a/<id>` pages and `/api/<id>/*`.
-- A link is `<base_url>/a/<id>` (22-character random id). With `link_secret: always` it also carries `?k=<token>`, which is
-  exchanged for a cookie and dropped from the URL. See [Security](#security).
-- Pages see `window.claude` (injected shim). A db save can carry `{notify: true}`, and `claude.notify()` stands alone:
-  either tells the agent the data is ready for review. When the artifact was created from a chat session, the notify
-  pushes a fixed `[artifact notified]` notice into that session; the agent reads the data with `live_artifact_read`.
+- The listener runs inside the Hermes gateway and serves each artifact at `<base_url>/a/<id>`.
+- Pages see `window.claude`. A db save can carry `{notify: true}`, and `claude.notify()` stands alone: either tells the
+  agent the data is ready for review. When the artifact was created from a chat session, the notify pushes a fixed
+  `[artifact notified]` notice into that session; the agent then reads the data with `live_artifact_read`.
 
 ## Tools
 
@@ -30,9 +32,11 @@ See [docs/compatibility.md](docs/compatibility.md) for what matches, what differ
     live_artifact_read(id)                  status plus every document
     live_artifact_list / live_artifact_db_write / live_artifact_archive / live_artifact_delete / live_artifact_export
 
+The agent is also given two skills, `live-artifacts:capabilities` and `live-artifacts:design`.
+
 ## CLI commands
 
-The plugin registers `hermes live-artifacts` for managing artifacts from the terminal:
+`hermes live-artifacts` manages artifacts from the terminal; add `--json` for machine-readable output.
 
     hermes live-artifacts list [--status active|archived] [--json]
     hermes live-artifacts show <id> [--data] [--json]
@@ -42,37 +46,18 @@ The plugin registers `hermes live-artifacts` for managing artifacts from the ter
     hermes live-artifacts delete <id> [-y] [--json]
     hermes live-artifacts export <id> [--out <file.json>]
 
-Output renders as Rich tables/panels in interactive terminals, or clean JSON with `--json`.
-
 ## Dashboard tab
 
-`plugin/dashboard/` adds an **Artifacts** tab to the Hermes dashboard: list by status, a device-sized preview of the page, a
-live view of its documents (refreshes as the page autosaves), and copy link / rotate link / pin / archive / delete /
-export JSON. It needs no build step. The backend (`plugin/dashboard/plugin_api.py`) runs in the dashboard process and reads
-the same SQLite file as the gateway. Rotate is not offered (and the API refuses it) when `link_secret` is `never`. Restart the dashboard after
-updating the plugin.
+The plugin adds a **Live artifacts** tab to the Hermes dashboard: list by status, a preview of the page, a live view of its
+documents, and actions: copy link / rotate link / pin / archive / delete / export JSON.
 
-## Skills
-
-Loaded by the agent as `live-artifacts:capabilities` and `:design`. Inspired by Claude's artifact capabilities and
-design guidance; written for this plugin. Sources: `plugin/skills/`.
-
-## Installing
-
-    hermes plugins install mindsocket/hermes-live-artifacts#plugin --enable
-    hermes gateway restart                                           # the listener lives in the gateway
-
-Start a new chat session afterwards; tools load when a session starts. To update: `hermes plugins update live-artifacts`,
-then restart the gateway.
-
-The plugin assets sit in the `plugin/` directory (`plugin/plugin.yaml`).
-
-Pip route (declared, not yet exercised): `pip install .` registers the `hermes_agent.plugins` entry point
-`live-artifacts = live_artifacts:register`.
+Only if this Hermes instance runs a dashboard: after installing or updating the plugin, make it pick up the plugin with
+`curl http://127.0.0.1:9119/api/dashboard/plugins/rescan` (replace host/port as appropriate), or, when it is safe to stop the dashboard,
+stop it and run `hermes dashboard` again.
 
 ## Configuration
 
-Set under the plugin's config (see `plugin.yaml` `config_schema`):
+Set under `plugins.entries.live-artifacts.settings` in the Hermes config:
 
     listen_host      127.0.0.1, an IP, or "tailscale" (bind this node's tailnet IPv4)
     listen_port      47318
@@ -80,23 +65,14 @@ Set under the plugin's config (see `plugin.yaml` `config_schema`):
     base_url         origin used in returned links; empty means http://<listen_host>:<listen_port>
     link_secret      auto (default) | always | never; see Security
 
-MCP from pages is off until the operator lists servers in Hermes config under
-`plugins.entries.live-artifacts.mcp_allowlist` (not a plugin config key).
-
-Data lives in `$HERMES_HOME/plugin-data/live-artifacts/`; backups and the `.secret` key file are covered in
-`docs/security.md`.
+Pages can call MCP tools only after you list the servers under `plugins.entries.live-artifacts.mcp_allowlist`.
 
 ## What it does on your machine
 
-- Runs one HTTP listener inside the messaging gateway (default `127.0.0.1:47318`, or your tailnet address with
-  `listen_host: tailscale`). It serves artifact pages and their API; there is no sign-in, see [Security](#security).
 - Stores artifacts and their documents in SQLite at `$HERMES_HOME/plugin-data/live-artifacts/artifacts.db` (0600, directory 0700).
-  Page data is plain rows on disk.
-- When a page saves with `notify`, or calls `claude.notify()`, injects a fixed-template `[artifact notified]` message into
-  the chat session that created the artifact. The message carries no page data; the agent reads it with `live_artifact_read`.
+  Page data is plain rows on disk. Backups and the `.secret` key file are covered in [docs/security.md](docs/security.md).
 - `live_artifact_export` writes a JSON dump (including artifact tokens and entered data) to
   `$HERMES_HOME/plugin-data/live-artifacts/exports/`, or to a `path` the agent supplies if Hermes write policy allows it.
-- A page may call MCP tools only if it declares them and you have allowed that server in plugin config.
 - No telemetry, no outbound network calls, no stored credentials, no hooks or middleware.
 
 ## Security
@@ -112,10 +88,8 @@ There is no sign-in. Access is by possession of the link, so treat the listener 
 - Pages run in a sandbox with no cookies or browser storage, and each carries only its own artifact's API token.
   The browser does not stop a page calling another artifact's API, so the token is the only barrier; see
   [docs/security.md](docs/security.md).
-- A page may call MCP tools only if it declares them and the operator has allowed that server. Declared tools run with
-  your authority.
-- Do not expose the port to the public internet. Tailscale Funnel is out of scope.
-- Possible later option: sign in with Hermes' own dashboard credentials. Not implemented.
+- MCP tools a page declares run with your authority.
+- Do not expose the port to the public internet.
 
 ## Development
 
@@ -125,12 +99,26 @@ There is no sign-in. Access is by possession of the link, so treat the listener 
     uv run python scripts/validate.py  # validate plugin manifest and isolation in clean temp directory
     scripts/deploy_to_hermes           # install the committed tree and restart the gateway (asks first)
 
+## Feature comparison
+
+| Feature | `live-artifacts` (this plugin) | Claude Artifacts (Anthropic) | `dmmeteo/hermes-artifacts` |
+| :--- | :--- | :--- | :--- |
+| **Primary focus** | **Interactive 2-way apps**: forms, review lists, dashboards | **In-chat interactive widgets**: React apps, code snippets, visual docs | **Static document library**: browse and share finished deliverables |
+| **Interaction model** | Bidirectional: user edits data, pushes `notify` back to chat session | Conversational: viewed/edited in chat; no external session pushback | Read-only: static viewing and downloading; no agent pushback |
+| **Client persistence** | SQLite-backed document store via `window.claude.use('db')` with realtime SSE | Hosted document store via `window.claude.use('db')` | None (static content only; no client-side database) |
+| **Runtime compatibility** | Partial Claude contract 0.2.75 (`db`, `downloads`, `mcp`, constant single `user`) | Native Claude runtime (multi-user/mock users, comments, assets, rooms) | None (no `window.claude` runtime; raw file rendering) |
+| **Push to chat session** | Yes (`claude.notify()` / `{notify: true}` sends `[artifact notified]`) | No | No |
+| **Supported formats** | Interactive HTML applications (embedded or CDN assets) | React, HTML, SVG, Markdown, code, Mermaid | Multi-format: HTML, Markdown, SVG, PNG, WebP |
+| **Hosting architecture** | Embedded aiohttp listener inside Hermes gateway process (zero-setup) | Hosted cloud service on claude.ai | Decoupled standalone FastAPI service (runs outside Hermes gateway) |
+| **Sharing & access** | Private network (Tailscale/localhost); random ID + optional link secret (`?k=...`) | Public link sharing (claude.site) or workspace permissions | Expiring 128-bit bearer tokens, SHA-256 hashed at rest, revocable guest links |
+| **Management UI** | Hermes Dashboard tab ("Live artifacts"), CLI commands, agent tools | Claude chat interface / artifact drawer | Standalone web console (`/console/`), Hermes Dashboard tab, CLI |
+
 ## More
 
 - [docs/architecture.md](docs/architecture.md): components, data model, hosting and isolation design.
 - [docs/security.md](docs/security.md): threat model and known gaps.
 - [docs/compatibility.md](docs/compatibility.md): how the page API differs from Claude's.
-- [AGENTS.md](AGENTS.md): repository layout, conventions and pitfalls for contributors.
+- [AGENTS.md](AGENTS.md): repository layout, development commands and conventions for contributors.
 
 ## License
 

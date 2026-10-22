@@ -1,6 +1,6 @@
 {
   "name": "live-artifacts",
-  "label": "Artifacts",
+  "label": "Live Artifacts",
   "description": "Browse, preview and manage live artifacts.",
   "icon": "Puzzle",
   "version": "0.1.0",
