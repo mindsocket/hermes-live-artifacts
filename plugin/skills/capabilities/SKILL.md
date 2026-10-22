@@ -129,7 +129,9 @@ the page stays editable unless you stop it.
 ## Agent side
 
 - `live_artifact_create(title, html, capabilities?, pinned?, seed?, wake?)` returns the deep link and
-  `push_on_notify`. Share the link with the user.
+  `push_on_notify`. Share the link with the user. In Hermes Desktop, also emit `::live-artifact{id="<id>"}` as its
+  own paragraph: it renders an inline interactive preview in the conversation. Where the plugin's desktop half is
+  absent it stays a readable line of text, so keep the link too.
 - `live_artifact_read(id)` returns status plus every db document (what the user entered), keyed by path.
 - `live_artifact_update(id, html=...)` changes the page in place. The db is untouched, so a new version must tolerate
   documents written by an older one (missing fields, renamed keys).

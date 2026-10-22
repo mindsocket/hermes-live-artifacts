@@ -115,8 +115,9 @@ SHELL_CSP = "default-src 'self'; style-src 'unsafe-inline'; frame-src 'self'; ob
 
 def frame_ancestors_from(base_url: str) -> str:
     """Who may embed the shell: 'self', the base_url host on any port (the Hermes dashboard shares the
-    tailnet host; its port is not known to the plugin), and loopback dev origins. Derived, not configured."""
-    hosts = ["'self'", "http://127.0.0.1:*", "http://localhost:*"]
+    tailnet host; its port is not known to the plugin), loopback dev origins, and `file:` (the packaged
+    Hermes Desktop renderer is a file:// page). Derived, not configured."""
+    hosts = ["'self'", "http://127.0.0.1:*", "http://localhost:*", "file:"]
     pub = (urlsplit(base_url).hostname or "") if base_url else ""
     if pub and pub not in ("127.0.0.1", "localhost"):
         scheme = urlsplit(base_url).scheme or "https"

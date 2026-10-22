@@ -36,7 +36,7 @@ packages = ["live_artifacts"]
 live_artifacts = "plugin"
 
 [tool.setuptools.package-data]
-live_artifacts = ["server/shim.js", "skills/*/SKILL.md", "plugin.yaml", "dashboard/**/*"]
+live_artifacts = ["server/shim.js", "skills/*/SKILL.md", "plugin.yaml", "dashboard/**/*", "desktop/**/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

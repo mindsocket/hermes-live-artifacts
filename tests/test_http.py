@@ -70,6 +70,7 @@ def test_shell_frame_ancestors_derived_from_base_url(store, art):
         assert r.status == 200
         csp = r.headers["Content-Security-Policy"]
         assert "https://node.tail1234.ts.net:*" in csp and "*.ts.net" not in csp
+        assert " file:" in csp  # packaged Hermes Desktop renderer is a file:// page
 
     run(with_client(store, go, link_secret=False, base_url="https://node.tail1234.ts.net"))
 
