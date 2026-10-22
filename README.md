@@ -46,14 +46,20 @@ The agent is also given two skills, loaded with `skill_view(name="live-artifacts
     hermes live-artifacts delete <id> [-y] [--json]
     hermes live-artifacts export <id> [--out <file.json>]
 
-## Dashboard tab
+## Dashboard and Desktop support
 
-The plugin adds a **Live artifacts** tab to the Hermes dashboard: list by status, a preview of the page, a live view of its
-documents, and actions: copy link / rotate link / pin / archive / delete / export JSON.
+The plugin adds a **Live artifacts** tab to the Hermes web dashboard and a **Live Artifacts** page to Hermes Desktop: list by status,
+a preview of the page, a live view of its documents, and actions: copy link / rotate link / pin / archive / delete (export JSON is
+dashboard only). Desktop also adds a command palette entry and renders `::live-artifact{id="..."}` in a chat reply as an inline card.
 
-Only if this Hermes instance runs a dashboard: after installing or updating the plugin, make it pick up the plugin with
-`curl http://127.0.0.1:9119/api/dashboard/plugins/rescan` (replace host/port as appropriate), or, when it is safe to stop the dashboard,
-stop it and run `hermes dashboard` again.
+### Dashboard setup
+Only if you've started a Hermes dashboard: after installing or updating the plugin, make it pick up the plugin with
+`curl http://127.0.0.1:9119/api/dashboard/plugins/rescan` (replace host/port as appropriate).
+
+### Desktop setup
+After installing or updating the plugin, relaunch Hermes Desktop, then open Capabilities → Plugins → Live Artifacts and
+switch the **Desktop** half on. Note that popups and modals are blocked in Desktop
+guest frames, so use **Open in browser** for anything that needs them.
 
 ## Configuration
 
@@ -111,7 +117,7 @@ There is no sign-in. Access is by possession of the link, so treat the listener 
 | **Supported formats** | Interactive HTML applications (embedded or CDN assets) | React, HTML, SVG, Markdown, code, Mermaid | Multi-format: HTML, Markdown, SVG, PNG, WebP |
 | **Hosting architecture** | Embedded aiohttp listener inside Hermes gateway process (zero-setup) | Hosted cloud service on claude.ai | Decoupled standalone FastAPI service (runs outside Hermes gateway) |
 | **Sharing & access** | Private network (Tailscale/localhost); random ID + optional link secret (`?k=...`) | Public link sharing (claude.site) or workspace permissions | Expiring 128-bit bearer tokens, SHA-256 hashed at rest, revocable guest links |
-| **Management UI** | Hermes Dashboard tab ("Live artifacts"), CLI commands, agent tools | Claude chat interface / artifact drawer | Standalone web console (`/console/`), Hermes Dashboard tab, CLI |
+| **Management UI** | Hermes Dashboard tab ("Live artifacts"), Hermes Desktop page, CLI commands, agent tools | Claude chat interface / artifact drawer | Standalone web console (`/console/`), Hermes Dashboard tab, CLI |
 
 ## More
 

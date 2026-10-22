@@ -42,6 +42,10 @@ Hermes CLI / Cron Sessions ──────────┘          ▲
    - Runs in the dashboard process, not the gateway; both open the same SQLite file. The router is a thin wrapper
      over `server/admin.py` and the `tools` module, which hold the logic and are covered by `tests/test_dashboard.py`.
    - The UI polls `/seq` every 2 s (`change_seq` moves on every write) and refetches when it changes.
+6. **Desktop half (`plugin/desktop/plugin.js`)**:
+   - Plain ESM, no build step. Hermes Desktop copies it out of the installed plugin; the user enables it in Capabilities → Plugins.
+   - Same backend as the dashboard tab (`ctx.rest`). The packaged renderer is a `file://` page, so the shell's
+     `frame-ancestors` includes `file:` (security.md §3.1).
 
 ---
 

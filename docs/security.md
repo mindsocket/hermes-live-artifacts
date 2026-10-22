@@ -58,6 +58,7 @@ The Artifacts tab (`dashboard/plugin_api.py`) is an operator surface inside the 
 - It can read every artifact's documents and mint a link (token included) for the one artifact opened, so it is exactly as trusted as the dashboard session. The list endpoint and export never include a token.
 - The preview embeds the shell (`/a/<id>`) in an iframe whose `sandbox` has no `allow-same-origin`; the shell is already a different origin from the dashboard (different port), and the shell's `frame-ancestors` admits the `base_url` host on any port (§3.1). Rotation is not offered in `never` mode and the dashboard API refuses it with 409 (`test_http_rotate_refused_in_never_mode`).
 - After a rotation, pages already open keep their old API token and get 404 from the API (as for any wrong token, §3.3) and a closed event stream (`test_revoke_kills_old_link_and_token`). There is no in-page "link rotated" message; the user reopens the new link.
+- The Hermes Desktop half (`plugin/desktop/plugin.js`) calls this same backend, so it has the same trust level and the same preview embedding; the only difference is that the embedder is the packaged renderer, a `file://` page, admitted by `file:` in `frame-ancestors` (§3.1).
 
 ### 3.3 Not-found and forbidden responses
 What the code does, measured with `link_secret` set both ways (unknown id, archived id, existing id with no / wrong / non-ASCII `k`):
