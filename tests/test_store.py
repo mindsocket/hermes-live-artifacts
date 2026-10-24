@@ -300,3 +300,10 @@ def test_concurrent_first_starts_agree_on_one_key(tmp_path):
     with ThreadPoolExecutor(8) as ex:
         keys = list(ex.map(lambda _: Store(tmp_path)._key, range(8)))
     assert len(set(keys)) == 1 and keys[0] == (tmp_path / ".secret").read_bytes()
+
+
+def test_index_token_is_stable_and_rotates(store):
+    first = store.index_token()
+    assert store.index_token() == first
+    assert Store(store.dir).index_token() == first  # another process sees the same token
+    assert store.rotate_index_token() != first

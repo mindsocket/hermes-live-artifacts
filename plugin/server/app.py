@@ -24,11 +24,13 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import html
 import json
 import logging
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from aiohttp import web
 
@@ -60,6 +62,36 @@ img{max-width:100%}
     .strip()
     .replace("\n", "")
 )
+
+
+# The index page runs no script and loads nothing: it is a list of links.
+INDEX_CSP = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+INDEX_CSS = (
+    "body{margin:0;padding:1rem;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}"
+    "main{max-width:42rem;margin:0 auto}h1{font-size:1.2rem}ul{list-style:none;padding:0}"
+    "li{padding:.6rem 0;border-bottom:1px solid #e5e3da}a{color:#141413;font-weight:600}"
+    "small{display:block;color:#6b6a63}"
+)
+
+
+def render_index(artifacts: list[dict], link_secret: bool) -> str:
+    """Active artifacts, already ordered pinned-first. Each link carries the artifact's own `?k` where the page
+    needs one, so the index token works as a key to every listed artifact."""
+    rows = []
+    for a in artifacts:
+        href = f"/a/{a['id']}" + (f"?k={quote(a['token'], safe='')}" if needs_link_secret(a["id"], link_secret) else "")
+        updated = datetime.fromtimestamp(a["updated_at"], tz=UTC).strftime("%Y-%m-%d %H:%M UTC")
+        pin = "\u2605 " if a["pinned"] else ""
+        rows.append(
+            f'<li><a href="{html.escape(href)}">{pin}{html.escape(a["title"])}</a><small>{updated}</small></li>'
+        )
+    body = "<ul>" + "".join(rows) + "</ul>" if rows else "<p>No artifacts.</p>"
+    return (
+        "<!doctype html><html><head><meta charset=utf8>"
+        '<meta name=viewport content="width=device-width,initial-scale=1">'
+        f"<title>Live artifacts</title><style>{INDEX_CSS}</style></head>"
+        f"<body><main><h1>Live artifacts</h1>{body}</main></body></html>"
+    )
 
 
 def render_page(a: dict) -> str:
@@ -179,8 +211,11 @@ def make_app(
     mcp_call: Callable[..., dict] | None = None,
     link_secret: bool = True,
     base_url: str = "",
+    index: bool = False,
 ) -> web.Application:
-    """link_secret=True: a page loads only with the artifact's token (`?k=`, then a path-scoped cookie).
+    """index=True also serves `/index`, a list of active artifacts gated by the store's index token (`?k=`,
+    exchanged for a cookie scoped to /index) in every link_secret mode. Off, the route does not exist.
+    link_secret=True: a page loads only with the artifact's token (`?k=`, then a path-scoped cookie).
     False: the long random id in the URL is the capability, so the URL needs no secret. Artifacts with a
     legacy short id always require the secret. The in-page API token is used in both modes.
     base_url feeds the shell's frame-ancestors (dashboard host)."""
@@ -363,7 +398,42 @@ def make_app(
     async def health(_r: web.Request) -> web.Response:
         return web.json_response({"ok": True, "change_seq": store.change_seq()})
 
+    async def index_page(request: web.Request) -> web.StreamResponse:
+        """A wrong or missing token is a 404, as for artifacts. The token is checked against the store on every
+        request, so rotating it revokes existing cookies."""
+        token = await asyncio.to_thread(store.index_token)
+        k = request.query.get("k")
+        if k is not None:
+            if not same_token(k, token):
+                raise web.HTTPNotFound(text="not found")
+            resp = web.HTTPFound("/index")
+            resp.set_cookie(
+                "ha_index",
+                token,
+                httponly=True,
+                samesite="Lax",
+                path="/index",
+                max_age=86400 * 90,
+                secure=request.secure or request.headers.get("x-forwarded-proto") == "https",
+            )
+            raise resp
+        if not same_token(request.cookies.get("ha_index", ""), token):
+            raise web.HTTPNotFound(text="not found")
+        artifacts = await asyncio.to_thread(lambda: store.list_artifacts("active", with_tokens=True))
+        return web.Response(
+            text=render_index(artifacts, link_secret),
+            content_type="text/html",
+            headers={
+                "Content-Security-Policy": INDEX_CSP,
+                "Cache-Control": "no-store",
+                "Referrer-Policy": "no-referrer",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
     app.router.add_get("/healthz", health)
+    if index:
+        app.router.add_get("/index", index_page)
     app.router.add_get("/a/{aid}", shell)
     app.router.add_get("/a/{aid}/frame", page)
     app.router.add_get("/api/{aid}/events", events)
@@ -411,13 +481,14 @@ class Listener:
         mcp_call: Callable[..., dict] | None = None,
         link_secret: bool = True,
         base_url: str = "",
+        index: bool = False,
     ):
         self.store, self.host, self.port, self.on_notify = store, host, port, on_notify
         self.resolve_host = resolve_host or (lambda h: h)
         self.retry_s = retry_s
         self.gate, self.gate_timeout_s = gate, gate_timeout_s
         self.mcp_call, self.link_secret = mcp_call, link_secret
-        self.base_url = base_url
+        self.base_url, self.index = base_url, index
         self.runner: web.AppRunner | None = None
         self.bound: str | None = None
 
@@ -444,7 +515,7 @@ class Listener:
         delay = self.retry_s
         while True:
             runner = web.AppRunner(
-                make_app(self.store, self.on_notify, self.mcp_call, self.link_secret, self.base_url),
+                make_app(self.store, self.on_notify, self.mcp_call, self.link_secret, self.base_url, self.index),
                 access_log=None,
             )
             try:

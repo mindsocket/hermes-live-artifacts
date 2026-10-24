@@ -37,3 +37,7 @@ config_schema:
     choices: [auto, always, never]
     default: auto
     description: "Whether links carry a secret (?k=...). 'auto' (default): 'always' unless both the bind address and base_url are loopback. 'never': the random artifact id in the URL is the only gate; suitable for a trusted network such as a private tailnet."
+  index:
+    type: boolean
+    default: false
+    description: "Serve /index on the listener: a read-only list of active artifacts, gated by its own token in every link_secret mode. Get the link with `hermes live-artifacts index-link`. The index token opens every listed artifact."

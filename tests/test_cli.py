@@ -269,3 +269,19 @@ def test_export_missing(cli_store, parser, capsys):
     assert rc != 0
     err = capsys.readouterr().err
     assert "No such artifact" in err
+
+
+def test_index_link_refuses_when_off(cli_store, parser, capsys):
+    tools.configure("http://127.0.0.1:47318", index=False)
+    rc = cli.live_artifacts_main(parser.parse_args(["index-link"]))
+    assert rc != 0
+    assert "index page is off" in capsys.readouterr().err
+
+
+def test_index_link_prints_and_rotates(cli_store, parser, capsys):
+    tools.configure("http://127.0.0.1:47318", index=True)
+    assert cli.live_artifacts_main(parser.parse_args(["index-link"])) == 0
+    first = capsys.readouterr().out.strip()
+    assert first == f"http://127.0.0.1:47318/index?k={cli_store.index_token()}"
+    assert cli.live_artifacts_main(parser.parse_args(["index-link", "--rotate"])) == 0
+    assert capsys.readouterr().out.strip() != first

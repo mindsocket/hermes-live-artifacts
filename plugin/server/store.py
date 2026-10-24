@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS docs (
 );
 CREATE INDEX IF NOT EXISTS docs_coll ON docs (artifact_id, collection);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS secrets (name TEXT PRIMARY KEY, salt TEXT NOT NULL);
 INSERT OR IGNORE INTO meta (key, value) VALUES ('change_seq', 0);
 """
 
@@ -378,15 +379,17 @@ class Store:
             r = c.execute("SELECT * FROM artifacts WHERE id=?", (aid,)).fetchone()
         return None if r is None else self._artifact_from_row(r)
 
-    def list_artifacts(self, status: str | None = None, *, full: bool = False) -> list[dict]:
-        """Pinned first, then newest first. Summaries omit `html` and `token`; `full` keeps `html` (never the token)."""
+    def list_artifacts(self, status: str | None = None, *, full: bool = False, with_tokens: bool = False) -> list[dict]:
+        """Pinned first, then newest first. Summaries omit `html` and `token`; `full` keeps `html`, and
+        `with_tokens` keeps `token` (only for the index page, which is gated by its own token)."""
         q = "SELECT * FROM artifacts" + (" WHERE status=?" if status else "") + " ORDER BY pinned DESC, updated_at DESC"
         with self._read() as c:
             rows = c.execute(q, (status,) if status else ()).fetchall()
         out = []
         for r in rows:
             a = self._artifact_from_row(r)
-            del a["token"]
+            if not with_tokens:
+                del a["token"]
             if not full:
                 del a["html"]
             out.append(a)
@@ -432,6 +435,22 @@ class Store:
             if c.execute("UPDATE artifacts SET salt=? WHERE id=?", (salt, aid)).rowcount == 0:
                 raise KeyError(aid)
         return self.derive_token(aid, salt)
+
+    def index_token(self) -> str:
+        """Token gating the artifact index page, minted on first use. Derived like artifact tokens from the
+        installation key and a stored salt; rotating replaces the salt."""
+        with self._read() as c:
+            row = c.execute("SELECT salt FROM secrets WHERE name='index'").fetchone()
+        if row is None:
+            with self._tx() as c:  # another process may have minted it since the read
+                c.execute("INSERT OR IGNORE INTO secrets (name, salt) VALUES ('index', ?)", (_new_salt(),))
+                row = c.execute("SELECT salt FROM secrets WHERE name='index'").fetchone()
+        return self.derive_token("index", row[0])
+
+    def rotate_index_token(self) -> str:
+        with self._tx() as c:
+            c.execute("INSERT OR REPLACE INTO secrets (name, salt) VALUES ('index', ?)", (_new_salt(),))
+        return self.index_token()
 
     @staticmethod
     def _archive_row(c: sqlite3.Connection, aid: str, now: float) -> int:

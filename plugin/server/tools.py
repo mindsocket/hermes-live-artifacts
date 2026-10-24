@@ -24,13 +24,19 @@ def store() -> Store:
 
 _base_url = "http://127.0.0.1:47318"
 _link_secret = True
+_index = False
 
 
-def configure(base_url: str, link_secret: bool = True) -> None:
+def configure(base_url: str, link_secret: bool = True, index: bool = False) -> None:
     """Set once from plugin settings in register(); every process that loads the plugin calls this."""
-    global _base_url, _link_secret
+    global _base_url, _link_secret, _index
     _base_url = base_url.rstrip("/")
     _link_secret = link_secret
+    _index = index
+
+
+def index_enabled() -> bool:
+    return _index
 
 
 def base_url() -> str:

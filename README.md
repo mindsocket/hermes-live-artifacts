@@ -70,6 +70,7 @@ Set under `plugins.entries.live-artifacts.settings` in the Hermes config:
     listen_process   gateway (default) | any | none
     base_url         origin used in returned links; empty means http://<listen_host>:<listen_port>
     link_secret      auto (default) | always | never; see Security
+    index            false (default) | true: serve /index, a list of active artifacts; see Security
 
 Pages can call MCP tools only after you list the servers under `plugins.entries.live-artifacts.mcp_allowlist`.
 
@@ -91,6 +92,9 @@ There is no sign-in. Access is by possession of the link, so treat the listener 
   the id alone is not enough. Either way, archiving the artifact revokes its link.
 - `auto` (default) picks `always` when the bind address or `base_url` is not loopback. Set `never` explicitly to get clean
   URLs on a tailnet.
+- `index: true`: the listener also serves `/index`, a read-only list of active artifacts. It always needs its own token,
+  whatever `link_secret` says. Get the link with `hermes live-artifacts index-link` (`--rotate` replaces the token).
+  The list links embed each artifact's own `?k`, so the index token opens every listed artifact: guard it like a master key.
 - Pages run in a sandbox with no cookies or browser storage, and each carries only its own artifact's API token.
   The browser does not stop a page calling another artifact's API, so the token is the only barrier; see
   [docs/security.md](docs/security.md).

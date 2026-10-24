@@ -569,3 +569,84 @@ def test_non_ascii_token_is_refused_like_any_wrong_token(store, art):
         assert (await c.get(f"/api/{art['id']}/events?k=%C3%A9")).status == 404
 
     run(with_client(store, go))
+
+
+# ---------------------------------------------------------------- index page
+def with_index(store, fn, link_secret=True):
+    async def go():
+        async with TestClient(TestServer(make_app(store, link_secret=link_secret, index=True))) as c:
+            return await fn(c)
+
+    return run(go())
+
+
+def test_index_route_absent_unless_enabled(store, art):
+    async def go(c):
+        assert (await c.get("/index")).status == 404
+        assert (await c.get(f"/index?k={store.index_token()}")).status == 404
+
+    run(with_client(store, go))
+
+
+def test_index_needs_its_token_in_every_link_secret_mode(store, art):
+    async def go(c):
+        assert (await c.get("/index")).status == 404
+        assert (await c.get("/index?k=wrong")).status == 404
+
+    for mode in (True, False):
+        with_index(store, go, link_secret=mode)
+
+
+def test_index_token_exchanges_for_a_scoped_cookie_then_lists(store, art):
+    async def go(c):
+        r = await c.get(f"/index?k={store.index_token()}", allow_redirects=False)
+        assert r.status == 302 and r.headers["Location"] == "/index"
+        cookie = r.headers["Set-Cookie"]
+        assert "HttpOnly" in cookie and "Path=/index" in cookie and "SameSite=Lax" in cookie
+        page = await c.get("/index")  # the client keeps the cookie
+        assert page.status == 200
+        body = await page.text()
+        assert "form" in body and f"/a/{art['id']}?k={art['token']}" in body
+        h = page.headers
+        assert "default-src 'none'" in h["Content-Security-Policy"]
+        assert h["Referrer-Policy"] == "no-referrer" and h["Cache-Control"] == "no-store"
+
+    with_index(store, go)
+
+
+def test_index_links_drop_k_when_the_artifact_needs_none(store, art):
+    async def go(c):
+        await c.get(f"/index?k={store.index_token()}")
+        body = await (await c.get("/index")).text()
+        assert f'href="/a/{art["id"]}"' in body and art["token"] not in body
+
+    with_index(store, go, link_secret=False)
+
+
+def test_index_lists_active_only_pinned_first_and_escapes_titles(store):
+    store.create_artifact("old", "<p>x</p>", {})
+    store.create_artifact("<b>new</b>", "<p>x</p>", {})
+    pinned = store.create_artifact("pinned", "<p>x</p>", {})
+    gone = store.create_artifact("gone", "<p>x</p>", {})
+    store.update_artifact(pinned["id"], pinned=True)
+    store.archive(gone["id"])
+
+    async def go(c):
+        await c.get(f"/index?k={store.index_token()}")
+        body = await (await c.get("/index")).text()
+        assert "gone" not in body and "<b>new</b>" not in body and "&lt;b&gt;new&lt;/b&gt;" in body
+        order = [body.index(t) for t in (">★ pinned<", "&lt;b&gt;new", ">old<")]
+        assert order == sorted(order)
+
+    with_index(store, go)
+
+
+def test_rotating_the_index_token_revokes_the_cookie(store, art):
+    async def go(c):
+        await c.get(f"/index?k={store.index_token()}")
+        assert (await c.get("/index")).status == 200
+        fresh = store.rotate_index_token()
+        assert (await c.get("/index")).status == 404
+        assert (await c.get(f"/index?k={fresh}")).status == 200
+
+    with_index(store, go)

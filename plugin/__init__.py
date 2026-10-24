@@ -35,26 +35,37 @@ DEFAULTS: dict[str, Any] = {
     "listen_process": "gateway",  # gateway | any | none
     "base_url": "",  # public origin used in links; default http://<listen_host>:<port>
     "link_secret": "auto",  # auto | always | never: require ?k=<secret> in links (auto: always unless loopback-only)
+    "index": False,  # serve /index, a token-gated list of active artifacts (link: `hermes live-artifacts index-link`)
 }
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", ""}
 # YAML 1.1 and `hermes config set` turn a bare on/off/yes/no into a boolean, so the documented words are
 # always/never (they stay strings). The boolean-ish words remain accepted as aliases, including real booleans.
-_SECRET_ALWAYS = {"always", "on", "true", "yes", "1"}
-_SECRET_NEVER = {"never", "off", "false", "no", "0"}
+# `index` is a plain boolean and takes the same words.
+_TRUE_WORDS = {"always", "on", "true", "yes", "1"}
+_FALSE_WORDS = {"never", "off", "false", "no", "0"}
 
 
 def resolve_link_secret(value: Any, listen_host: str, base_url: str) -> bool:
     """auto = always when anything non-loopback can reach the listener: a non-loopback bind, or a public base_url
     (a loopback bind fronted by `tailscale serve` still has a tailnet-facing origin)."""
     v = str(value).strip().lower()
-    if v in _SECRET_ALWAYS:
+    if v in _TRUE_WORDS:
         return True
-    if v in _SECRET_NEVER:
+    if v in _FALSE_WORDS:
         return False
     if v != "auto":
         raise ValueError(f"link_secret={value!r} is invalid; use auto, always or never")
     pub = (urlsplit(base_url).hostname or "") if base_url else ""
     return listen_host not in LOOPBACK_HOSTS or pub not in LOOPBACK_HOSTS
+
+
+def resolve_index(value: Any) -> bool:
+    v = str(value).strip().lower()
+    if v in _TRUE_WORDS:
+        return True
+    if v in _FALSE_WORDS:
+        return False
+    raise ValueError(f"index={value!r} is invalid; use true or false")
 
 
 _thread: threading.Thread | None = None
@@ -69,6 +80,7 @@ def read_settings(get_config: Callable[[str, Any], Any]) -> dict:
         out[key] = int(val) if key == "listen_port" else (val if val is not None else default)
     if out["listen_process"] not in ("gateway", "any", "none"):
         raise ValueError(f"listen_process={out['listen_process']!r} is invalid; use gateway, any or none")
+    out["index"] = resolve_index(out["index"])
     out["link_secret"] = resolve_link_secret(out["link_secret"], out["listen_host"], out["base_url"])
     if not out["base_url"]:
         host = out["listen_host"] if out["listen_host"] != "tailscale" else "TAILSCALE_IP"
@@ -199,6 +211,7 @@ def _start_listener(ctx, cfg: dict) -> None:
         mcp_call=getattr(ctx, "call_mcp", None),
         link_secret=cfg["link_secret"],
         base_url=cfg["base_url"],
+        index=cfg["index"],
     )
     try:
         asyncio.get_running_loop()
@@ -247,7 +260,7 @@ def _start_listener(ctx, cfg: dict) -> None:
 
 def register(ctx) -> None:
     cfg = read_settings(ctx.get_config)
-    _tools.configure(base_url=cfg["base_url"], link_secret=cfg["link_secret"])
+    _tools.configure(base_url=cfg["base_url"], link_secret=cfg["link_secret"], index=cfg["index"])
     for schema, handler in TOOLS:
         ctx.register_tool(name=schema["name"], toolset="live-artifacts", schema=schema, handler=handler, emoji="🧩")
     skills = Path(__file__).parent / "skills"

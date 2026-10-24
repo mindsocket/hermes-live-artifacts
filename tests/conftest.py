@@ -49,4 +49,5 @@ def tools_store(monkeypatch, store):
     monkeypatch.setattr(tools, "_store", store)
     monkeypatch.setattr(tools, "_base_url", tools._base_url)
     monkeypatch.setattr(tools, "_link_secret", tools._link_secret)
+    monkeypatch.setattr(tools, "_index", tools._index)
     return store

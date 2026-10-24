@@ -443,3 +443,16 @@ def test_export_custom_path_refused_without_hermes_policy(tools_store, monkeypat
     target = tmp_path / "dump.json"
     out = json.loads(t.live_artifact_export({"path": str(target)}))
     assert not out["ok"] and not target.exists()
+
+
+@pytest.mark.parametrize(
+    "value,expected", [(None, False), (False, False), ("off", False), (True, True), ("true", True)]
+)
+def test_index_setting(value, expected):
+    cfg = plug.read_settings(lambda k, d: value if k == "index" and value is not None else d)
+    assert cfg["index"] is expected
+
+
+def test_invalid_index_setting_raises():
+    with pytest.raises(ValueError, match="index"):
+        plug.read_settings(lambda k, d: {"index": "bogus"}.get(k, d))

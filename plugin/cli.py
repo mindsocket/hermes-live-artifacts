@@ -4,6 +4,7 @@ Commands:
   list      — List artifacts (active / archived)
   show      — Show artifact metadata and documents
   link      — Display or rotate artifact deep link
+  index-link — Display or rotate the artifact index link (needs the `index` setting)
   open      — Open artifact in the default browser
   archive   — Archive an artifact
   delete    — Delete an artifact and its documents
@@ -175,6 +176,21 @@ def cmd_link(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- index-link
+def cmd_index_link(args: argparse.Namespace) -> int:
+    if not tools.index_enabled():
+        console_err.print("[red]Error:[/red] the index page is off; set the `index` plugin setting to true")
+        return 1
+    st = _get_store()
+    token = st.rotate_index_token() if args.rotate else st.index_token()
+    link_url = f"{tools.base_url()}/index?k={token}"
+    if args.json:
+        print(json.dumps({"link": link_url, **({"rotated": True} if args.rotate else {})}, indent=2))
+    else:
+        print(link_url)
+    return 0
+
+
 # ---------------------------------------------------------------- open
 def cmd_open(args: argparse.Namespace) -> int:
     st = _get_store()
@@ -300,6 +316,12 @@ def setup_cli_parser(parser: argparse.ArgumentParser) -> None:
     p_link.add_argument("--rotate", action="store_true", help="Rotate capability token and return new link")
     p_link.add_argument("--json", action="store_true", help="Output as JSON")
     p_link.set_defaults(func=cmd_link)
+
+    # index-link
+    p_index = subs.add_parser("index-link", help="Display or rotate the artifact index link")
+    p_index.add_argument("--rotate", action="store_true", help="Rotate the index token and return the new link")
+    p_index.add_argument("--json", action="store_true", help="Output as JSON")
+    p_index.set_defaults(func=cmd_index_link)
 
     # open
     p_open = subs.add_parser("open", help="Open artifact deep link in default browser")

@@ -42,7 +42,7 @@ def _configure() -> None:
     entry = ((load_config_readonly() or {}).get("plugins") or {}).get("entries", {}).get(PLUGIN_ID) or {}
     settings = entry.get("settings") or {}
     cfg = read_settings(lambda key, default: settings.get(key, default))
-    tools.configure(base_url=cfg["base_url"], link_secret=cfg["link_secret"])
+    tools.configure(base_url=cfg["base_url"], link_secret=cfg["link_secret"], index=cfg["index"])
 
 
 _configure()
