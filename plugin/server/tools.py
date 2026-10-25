@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from . import mcp as mcp_mod
-from .store import DbError, Store, needs_link_secret
+from .store import DbError, Store
 
 _store: Store | None = None
 
@@ -48,7 +48,7 @@ def link_secret_enabled() -> bool:
 
 
 def link(a: dict) -> str:
-    if needs_link_secret(a["id"], _link_secret):
+    if _link_secret:
         return f"{base_url()}/a/{a['id']}?k={a['token']}"
     return f"{base_url()}/a/{a['id']}"
 

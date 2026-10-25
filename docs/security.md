@@ -73,7 +73,7 @@ What the code does, measured with `link_secret` set both ways (unknown id, archi
 | `/api/<id>/*`, wrong or non-ASCII token | 404 | 404 |
 | `/api/<id>/*`, unknown or archived id | 404 | 404 |
 
-So "a request without the secret gets a 404" is true only in `always` mode. In `never` mode there is no secret to lack: a live id serves the page. Legacy 12-character ids always behave as `always`, because they are guessable.
+So "a request without the secret gets a 404" is true only in `always` mode. In `never` mode there is no secret to lack: a live id serves the page.
 
 Tokens are compared as bytes in constant time (`hmac.compare_digest`); a non-ASCII token is simply a wrong token and gives the same status as any other.
 

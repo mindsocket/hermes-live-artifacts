@@ -36,7 +36,7 @@ config_schema:
     type: string
     choices: [auto, always, never]
     default: auto
-    description: "Whether artifact links carry a secret (?k=...). 'auto': 'always' unless both listen_host and base_url are loopback. 'always': the secret is required to open the page. 'never': the random artifact id in the URL is the only gate (suits a private tailnet; legacy 12-character ids still require the secret)."
+    description: "Whether artifact links carry a secret (?k=...). 'auto': 'always' unless both listen_host and base_url are loopback. 'always': the secret is required to open the page. 'never': the random artifact id in the URL is the only gate (suits a private tailnet)."
   index:
     type: boolean
     default: false

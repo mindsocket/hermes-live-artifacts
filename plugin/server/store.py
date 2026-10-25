@@ -134,14 +134,6 @@ def check_body(data: Any) -> str:
     return s
 
 
-MIN_UNGUESSABLE_ID = 22  # ids from new_artifact_id(); older 12-char ids are guessable and still need the link secret
-
-
-def needs_link_secret(aid: str, link_secret: bool) -> bool:
-    """Page loads and links carry the secret when configured to, and always for guessable legacy ids."""
-    return link_secret or len(aid) < MIN_UNGUESSABLE_ID
-
-
 def new_artifact_id() -> str:
     """22 URL-safe chars from a random UUIDv4 (never starts with '-' to avoid CLI option syntax)."""
     while True:

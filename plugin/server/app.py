@@ -35,7 +35,7 @@ from urllib.parse import quote, urlsplit
 from aiohttp import web
 
 from . import mcp as mcp_mod
-from .store import DbError, Store, needs_link_secret
+from .store import DbError, Store
 
 log = logging.getLogger("live_artifacts")
 SHIM = (Path(__file__).parent / "shim.js").read_text()
@@ -79,7 +79,7 @@ def render_index(artifacts: list[dict], link_secret: bool) -> str:
     needs one, so the index token works as a key to every listed artifact."""
     rows = []
     for a in artifacts:
-        href = f"/a/{a['id']}" + (f"?k={quote(a['token'], safe='')}" if needs_link_secret(a["id"], link_secret) else "")
+        href = f"/a/{a['id']}" + (f"?k={quote(a['token'], safe='')}" if link_secret else "")
         updated = datetime.fromtimestamp(a["updated_at"], tz=UTC).strftime("%Y-%m-%d %H:%M UTC")
         pin = "\u2605 " if a["pinned"] else ""
         rows.append(
@@ -216,8 +216,7 @@ def make_app(
     """index=True also serves `/index`, a list of active artifacts gated by the store's index token (`?k=`,
     exchanged for a cookie scoped to /index) in every link_secret mode. Off, the route does not exist.
     link_secret=True: a page loads only with the artifact's token (`?k=`, then a path-scoped cookie).
-    False: the long random id in the URL is the capability, so the URL needs no secret. Artifacts with a
-    legacy short id always require the secret. The in-page API token is used in both modes.
+    False: the long random id in the URL is the capability, so the URL needs no secret. The in-page API token is used in both modes.
     base_url feeds the shell's frame-ancestors (dashboard host)."""
     app = web.Application(middlewares=[cors_middleware])
     ancestors = frame_ancestors_from(base_url)
@@ -283,7 +282,7 @@ def make_app(
     async def shell(request: web.Request) -> web.StreamResponse:
         """Top-level page the link points at. Own origin, so it may hold the frame; the artifact runs inside."""
         aid = request.match_info["aid"]
-        a = auth_from_request(request, aid, needs_link_secret(aid, link_secret))
+        a = auth_from_request(request, aid, link_secret)
         return web.Response(
             text=render_shell(a, ancestors),
             content_type="text/html",
@@ -298,7 +297,7 @@ def make_app(
     async def page(request: web.Request) -> web.StreamResponse:
         """The artifact document itself, framed by `shell` (frame-src 'self' there keeps it that way)."""
         aid = request.match_info["aid"]
-        a = auth_from_request(request, aid, needs_link_secret(aid, link_secret))
+        a = auth_from_request(request, aid, link_secret)
         return web.Response(
             text=render_page(a),
             content_type="text/html",

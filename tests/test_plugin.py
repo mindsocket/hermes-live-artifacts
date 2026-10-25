@@ -394,15 +394,12 @@ def test_invalid_settings_raise():
         plug.read_settings(lambda k, d: {"listen_process": "bogus"}.get(k, d))
 
 
-def test_links_follow_the_setting_and_legacy_ids_keep_the_secret(tools_store):
+def test_links_follow_the_setting(tools_store):
     t.configure("https://h.ts.net", link_secret=False)
     a = json.loads(t.live_artifact_create({"title": "x", "html": "<p/>"}))
     assert a["link"] == f"https://h.ts.net/a/{a['id']}" and "?k=" not in a["link"]
     t.configure("https://h.ts.net", link_secret=True)
     assert json.loads(t.live_artifact_list({}))["artifacts"] and "?k=" in t.link(t.store().get_artifact(a["id"]))
-    t.configure("https://h.ts.net", link_secret=False)
-    legacy = {"id": "old123456789", "token": "tok"}
-    assert t.link(legacy).endswith("?k=tok")
 
 
 # ---------------------------------------------------------------- export

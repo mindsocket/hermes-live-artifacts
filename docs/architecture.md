@@ -126,7 +126,6 @@ All artifacts are hosted under a single origin (the gateway listener's hostname)
    - `always`: Links carry `?k=<token>`. On first open, the token is exchanged for an `HttpOnly`, `SameSite=Lax` cookie scoped strictly to `/a/<id>`, and stripped from the URL.
    - `never`: The 22-character unguessable ID is the bearer grant (reasonable on a private tailnet).
    - `auto` (default): `always` unless both the bind address and `base_url` are loopback.
-   - Legacy 12-character ids are guessable, so they always require the secret.
    - There is no sign-in; access is by possession of the link. Revoke by archiving.
    - **Index page** (`index: true`, off by default): `/index` lists active artifacts, script-free (`INDEX_CSP`). It has its own token in every `link_secret` mode; `hermes live-artifacts index-link --rotate` revokes it. The list embeds each artifact's `?k`, so the token opens them all. See [security.md](security.md).
 4. **MCP Allowlisting**:

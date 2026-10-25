@@ -1,6 +1,5 @@
 import asyncio
 import re
-import sqlite3
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
@@ -536,22 +535,6 @@ def test_link_secret_off_keeps_the_api_token_so_artifacts_stay_isolated(store, a
         assert (await c.post(f"/api/{art['id']}/db/get", json={"path": "a/b"})).status == 404
         assert (await c.post(f"/api/{other['id']}/db/get", json={"path": "a/b"}, headers=hdr(art))).status == 404
         assert (await c.post(f"/api/{art['id']}/db/get", json={"path": "a/b"}, headers=hdr(art))).status == 200
-
-    with_mode(store, go, False)
-
-
-def test_legacy_short_id_keeps_the_secret_even_when_off(store):
-    old = store.create_artifact("old", "<p/>", {"db": {}})
-    c = sqlite3.connect(store.path)
-    c.execute("UPDATE artifacts SET id='old123456789' WHERE id=?", (old["id"],))
-    c.commit()
-    c.close()
-    old = store.get_artifact("old123456789")
-
-    async def go(cl):
-        assert (await cl.get("/a/old123456789")).status == 404
-        r = await cl.get(f"/a/old123456789?k={old['token']}", allow_redirects=False)
-        assert r.status == 302 and "Set-Cookie" in r.headers
 
     with_mode(store, go, False)
 

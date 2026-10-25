@@ -35,7 +35,7 @@ docs/compatibility.md before touching `shim.js` or the skills, and docs/architec
 - Artifacts share one origin, so isolation between them rests on two things that must stay together: the CSP
   `sandbox` header (no `allow-same-origin`) and the per-artifact API token in the `x-artifact` header. Never reintroduce
   cookie-authenticated API calls or `allow-same-origin`. `link_secret` only gates page loads; the API token applies in
-  both modes. Legacy 12-char ids always require the secret. See docs/architecture.md §5.
+  both modes. See docs/architecture.md §5.
 
 ## Conventions
 

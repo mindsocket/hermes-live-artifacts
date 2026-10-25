@@ -38,9 +38,9 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 
 const ROUTE = '/live-artifacts'
 const POLL_MS = 2000
-// Matches the ids the store mints (token_urlsafe, plus legacy 12-char ids). The directive's attributes are
+// Matches the ids the store mints (22 URL-safe chars). The directive's attributes are
 // untrusted model output, so the id is validated before it reaches a URL path.
-const ID_RE = /^[A-Za-z0-9_-]{8,64}$/
+const ID_RE = /^[A-Za-z0-9_-]{22}$/
 // The desktop frame allowlist has no modals or popups; these are the tokens it accepts that the page can use.
 const FRAME_SANDBOX = 'allow-scripts allow-forms allow-downloads'
 const FILTERS = [
