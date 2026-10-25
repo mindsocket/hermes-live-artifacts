@@ -1,7 +1,7 @@
 name: live-artifacts
 version: "0.1.0"
 requires_hermes: ">=0.21.5"
-description: Interactive HTML artifacts (forms, review lists) with persisted input, served over your tailnet or loopback
+description: Hermes Agent plugin to create and use interactive pages, designs and dashboards in your sessions.
 kind: standalone
 platforms:
   - macos

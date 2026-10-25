@@ -80,6 +80,10 @@ Pages can call MCP tools only after you list the servers under `plugins.entries.
   Page data is plain rows on disk. Backups and the `.secret` key file are covered in [docs/security.md](docs/security.md).
 - `live_artifact_export` writes a JSON dump (including artifact tokens and entered data) to
   `$HERMES_HOME/plugin-data/live-artifacts/exports/`, or to a `path` the agent supplies if Hermes write policy allows it.
+- Runs a long-lived HTTP listener inside the Hermes gateway process (default `127.0.0.1:47318`; see Configuration for
+  binding it to your tailnet). It serves pages and takes input from whoever holds a link.
+- Runs one subprocess, only when `listen_host` is `tailscale`: `tailscale ip -4`, to learn this node's tailnet address.
+- Pages run in a sandboxed frame and can reach MCP tools only through the allowlist above.
 - No telemetry, no outbound network calls, no stored credentials, no hooks or middleware.
 
 ## Security
