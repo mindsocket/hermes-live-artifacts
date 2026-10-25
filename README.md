@@ -3,6 +3,8 @@
 by link, persist what you enter, and have a notification pushed into the
 chat session that created the page.
 
+https://github.com/user-attachments/assets/14d957c4-7819-4bc9-8d4a-0bd5d97e4383
+
 This plugin is inspired by Claude artifacts and aims to be compatible with them. The page-side API follows a reduced set of Claude's
 artifact runtime (`window.claude.use("db")` and friends), cut down to one user. A page written for Claude should be able to move
 to this plugin, with unsupported capabilities degrading gracefully. See [docs/compatibility.md](docs/compatibility.md) for what matches, what differs and what is not covered.
