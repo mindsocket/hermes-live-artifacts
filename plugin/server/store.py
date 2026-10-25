@@ -66,7 +66,7 @@ class DbError(Exception):
 
 
 def hermes_home() -> Path:
-    """Hermes' home directory; outside a Hermes process (tests, standalone) `$HERMES_HOME` or ~/.hermes."""
+    """Hermes' home directory; outside a Hermes process (tests, e2e fixture) `$HERMES_HOME` or ~/.hermes."""
     try:
         from hermes_constants import get_hermes_home
     except ImportError:

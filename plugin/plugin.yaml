@@ -19,25 +19,25 @@ config_schema:
   listen_host:
     type: string
     default: "127.0.0.1"
-    description: "Bind address. An IP, or the special value 'tailscale' to bind this node's tailnet IPv4 (retries until tailscaled is up)."
+    description: "Address the listener binds: an IP, or 'tailscale' for this node's tailnet IPv4 (the bind retries until tailscaled is up)."
   listen_port:
     type: integer
     default: 47318
-    description: Bind port.
+    description: Port the listener binds.
   listen_process:
     type: string
     default: gateway
-    description: "Which process hosts the listener: 'gateway' (the messaging gateway only), 'any' (first process to bind wins; use with plugins.isolation=host), 'none' (run your own listener on the same data dir)."
+    description: "Which process runs the listener: 'gateway' (the messaging gateway only), 'any' (every process tries to bind; the first to succeed serves; use with plugins.isolation=host), 'none' (tools only: the plugin never binds, so no pages are served)."
   base_url:
     type: string
     default: ""
-    description: "Origin used in links returned to the agent, e.g. https://host.tailnet.ts.net:47318. Empty means http://<listen_host>:<listen_port>."
+    description: "Origin of the listener as your browser reaches it, e.g. https://host.tailnet.ts.net:47318 (set it when fronting the listener with tailscale serve or a proxy). Used for returned links, the link_secret 'auto' decision and which origins may frame the page. Empty means http://<listen_host>:<listen_port>."
   link_secret:
     type: string
     choices: [auto, always, never]
     default: auto
-    description: "Whether links carry a secret (?k=...). 'auto' (default): 'always' unless both the bind address and base_url are loopback. 'never': the random artifact id in the URL is the only gate; suitable for a trusted network such as a private tailnet."
+    description: "Whether artifact links carry a secret (?k=...). 'auto': 'always' unless both listen_host and base_url are loopback. 'always': the secret is required to open the page. 'never': the random artifact id in the URL is the only gate (suits a private tailnet; legacy 12-character ids still require the secret)."
   index:
     type: boolean
     default: false
-    description: "Serve /index on the listener: a read-only list of active artifacts, gated by its own token in every link_secret mode. Get the link with `hermes live-artifacts index-link`. The index token opens every listed artifact."
+    description: "Serve /index on the listener: a read-only, script-free list of active artifacts, gated by its own token in every link_secret mode. Get the link with `hermes live-artifacts index-link`. The token opens every listed artifact."

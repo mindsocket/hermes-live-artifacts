@@ -95,13 +95,13 @@ The API answers `Access-Control-Allow-Origin: *` and answers every preflight wit
 
 ## 4. Known, accepted gaps
 
-Accepted residual risks, reviewed 2026-10-15. Not fixed by design or deferred deliberately.
+Accepted residual risks, reviewed 2026-10-15. Not fixed, by design.
 
-1. **The API token is in the SSE URL**: `EventSource` cannot send headers, so the token rides in the `/events?k=` query. The access log is off, so it reaches no log; the only exposure is a proxy in front of the listener, which the single-user, loopbound deployment does not have. Moving to a fetch-based stream would rewrite `shim.js` for every artifact and needs manual phone/desktop checks — deferred until there is a reason.
+1. **The API token is in the SSE URL**: `EventSource` cannot send headers, so the token rides in the `/events?k=` query. The access log is off, so it reaches no log; the only exposure is a proxy in front of the listener, which the single-user, loopbound deployment does not have. Moving to a fetch-based stream would rewrite `shim.js` for every artifact and needs manual phone/desktop checks — not changed.
 2. **WebRTC is not covered by CSP**: a page with a token could establish WebRTC connections whose candidates carry data. Not closed; treated as covered by "treat page code as able to send out anything it can read".
 3. **The event stream's change counter is global** (measured): `change_seq` is one number for all artifacts, so every page's stream sees writes to *any* artifact, and `/healthz` exposes it without auth. No data leaks — only write-activity timing and re-sync traffic.
 4. **No `Host` header check** (measured: a foreign `Host` returns 200). Accepted: tailnet hostnames vary and the token is the real gate.
-5. **Query filtering runs in Python**: `store.query` reads all of a collection's rows before filtering and limiting in memory, so a large collection costs proportional work per query. Pushing filtering and `limit` into SQL is deferred until document volumes justify it.
+5. **Query filtering runs in Python**: `store.query` reads all of a collection's rows before filtering and limiting in memory, so a large collection costs proportional work per query. Filtering and `limit` are not pushed into SQL.
 6. **Self-navigation of the artifact frame** (measured, live probe): a page can attempt to navigate itself to an external URL, carrying data out in the URL. Top-level navigation throws (sandbox), and CSP directives (`frame-src`, `form-action`) plus the shell's `frame-ancestors` refuse cross-origin targets — but every attempted navigation destroys the artifact page whether it is blocked or commits, and the two are not distinguishable in practice. Blast radius is contained to the frame. Distinguishing blocked from escaped would need a nested-iframe observer harness (not built). Separately, the shim's link interception is shim-enforced, not page-proof: a page that bypasses it (e.g. calling `parent.postMessage` directly) reaches only the shell, and the shim's own `window.open` path is available only to pages using the runtime — the enforcement is best-effort at the DOM boundary.
 
 ## 5. Reporting Security Vulnerabilities

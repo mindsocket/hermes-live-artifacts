@@ -5,7 +5,7 @@ should live in exactly one long-lived process: the messaging gateway, which laun
 supervises. `listen_process` selects where it runs:
   gateway (default)  only the gateway process binds; CLI/cron load tools only (they share the SQLite file)
   any                every process tries to bind and retries until it wins (use under plugins.isolation=host)
-  none               never bind; run your own listener (e.g. a separate service) against the same data dir
+  none               never bind: tools only, so no pages are served
 """
 
 from __future__ import annotations

@@ -67,7 +67,7 @@ Set under `plugins.entries.live-artifacts.settings` in the Hermes config:
 
     listen_host      127.0.0.1, an IP, or "tailscale" (bind this node's tailnet IPv4)
     listen_port      47318
-    listen_process   gateway (default) | any | none
+    listen_process   gateway (default) | any | none (tools only, no listener)
     base_url         origin used in returned links; empty means http://<listen_host>:<listen_port>
     link_secret      auto (default) | always | never; see Security
     index            false (default) | true: serve /index, a list of active artifacts; see Security

@@ -1,4 +1,4 @@
-"""aiohttp listener: serves /a/<id> pages, /api/<id>/* (db, mcp), SSE. Loopback only; tailscale serve fronts it.
+"""aiohttp listener: serves /a/<id> pages, /api/<id>/* (db, mcp), SSE. Binds `listen_host` (loopback by default); `tailscale serve` can front it.
 
 Isolation. All artifacts share one origin (Tailscale Serve gives one hostname), so the browser alone would let
 page A read page B's data. Three mechanisms replace a separate origin per artifact:

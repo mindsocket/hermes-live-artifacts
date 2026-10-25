@@ -128,7 +128,7 @@ All artifacts are hosted under a single origin (the gateway listener's hostname)
    - `auto` (default): `always` unless both the bind address and `base_url` are loopback.
    - Legacy 12-character ids are guessable, so they always require the secret.
    - There is no sign-in; access is by possession of the link. Revoke by archiving.
-   - **Index page** (`index: true`, off by default): `/index` lists active artifacts, pinned first. It is gated by a separate token in every `link_secret` mode, minted lazily and stored as a salt in the `secrets` table (derived like artifact tokens). `?k=` is exchanged for an `HttpOnly` cookie scoped to `/index`; the cookie is checked against the store on each request, so `hermes live-artifacts index-link --rotate` revokes it. Wrong or missing token, or the option off, is a 404. The page runs no script (`INDEX_CSP`, `default-src 'none'`) and its links carry each artifact's own `?k`, so the index token is a master key to every active artifact.
+   - **Index page** (`index: true`, off by default): `/index` lists active artifacts, script-free (`INDEX_CSP`). It has its own token in every `link_secret` mode; `hermes live-artifacts index-link --rotate` revokes it. The list embeds each artifact's `?k`, so the token opens them all. See [security.md](security.md).
 4. **MCP Allowlisting**:
    - Double-gated: Artifacts must declare server/tool pairs in `capabilities.mcp`, and the operator must explicitly allow the server under `plugins.entries.live-artifacts.mcp_allowlist`.
 
@@ -139,7 +139,7 @@ All artifacts are hosted under a single origin (the gateway listener's hostname)
 ### A. In-Gateway Hosting vs. Decoupled Standalone Daemon
 - **Decision**: Host the HTTP listener inside the long-lived Hermes gateway process.
 - **Trade-off**: If the gateway restarts, open artifact connections drop momentarily.
-- **Rationale**: An in-gateway listener requires zero external daemon management (`launchd`/`systemd`), shares configuration and memory directly with Hermes, and leverages existing gateway supervision. Standalone daemon mode is deferred until public guest sharing is prioritized.
+- **Rationale**: An in-gateway listener requires zero external daemon management (`launchd`/`systemd`), shares configuration and memory directly with Hermes, and leverages existing gateway supervision. There is no standalone daemon mode.
 
 ### B. Single Origin with Sandbox vs. Subdomains / Wildcard DNS
 - **Decision**: Single origin with strict CSP sandbox and capability tokens.
