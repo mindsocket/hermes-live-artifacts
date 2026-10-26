@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import re
 import sys
 from pathlib import Path
@@ -77,9 +78,9 @@ def call(handlers: dict, name: str, arguments: dict | None) -> tuple[str, bool]:
     is reported the same way instead of escaping as a protocol error."""
     if name not in handlers:
         return f"unknown tool {name}", True
-    args = arguments or {}
-    if name == "live_artifact_export":
-        args = {k: v for k, v in args.items() if k != "path"}
+    # keep enforcement in step with the schemas _for_mcp advertises
+    dropped = {"live_artifact_export": {"path"}}.get(name, set()) | {"wake"}
+    args = {k: v for k, v in (arguments or {}).items() if k not in dropped}
     try:
         text = handlers[name][1](args)
     except Exception as e:
@@ -96,17 +97,23 @@ def _check_mcp_version() -> None:
     from importlib.metadata import version
 
     v = version("mcp")
-    if int(v.split(".")[0]) < MIN_MCP_MAJOR:
+    major = re.match(r"\d+", v)
+    if not major or int(major.group()) < MIN_MCP_MAJOR:
         raise RuntimeError(f"mcp {v} is installed but live-artifacts mcp needs mcp>={MIN_MCP_MAJOR}")
 
 
-async def serve() -> None:
+def _load_sdk():
     # Imported here: `mcp` ships in the Hermes venv but is not a dependency of this package.
     _check_mcp_version()
     import mcp_types as types
     from mcp.server.lowlevel import Server
     from mcp.server.stdio import stdio_server
 
+    return types, Server, stdio_server
+
+
+async def serve(sdk=None) -> None:
+    types, Server, stdio_server = sdk or _load_sdk()
     handlers = _handlers()
 
     async def on_list_tools(ctx, params) -> types.ListToolsResult:
@@ -127,10 +134,10 @@ async def serve() -> None:
 
 
 def cmd_mcp(args: argparse.Namespace) -> int:
+    # Artifacts made over MCP must never adopt a Hermes chat session inherited from the parent environment.
+    os.environ.pop("HERMES_SESSION_KEY", None)
     try:
-        asyncio.run(serve())
-    except KeyboardInterrupt:
-        pass
+        sdk = _load_sdk()
     except (ImportError, RuntimeError) as e:
         print(
             f"live-artifacts mcp: cannot start ({e}). It needs the `mcp` package (>={MIN_MCP_MAJOR}); "
@@ -138,4 +145,8 @@ def cmd_mcp(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+    try:
+        asyncio.run(serve(sdk))
+    except KeyboardInterrupt:
+        pass
     return 0

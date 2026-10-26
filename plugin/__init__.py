@@ -107,7 +107,7 @@ def serving_mcp() -> bool:
     """True when this process is `hermes [-p x] live-artifacts mcp`: a stdio server that must never bind a port
     (whatever listen_process says) and whose stdout belongs to JSON-RPC."""
     argv = sys.argv
-    return "live-artifacts" in argv and argv[argv.index("live-artifacts") + 1 :][:1] == ["mcp"]
+    return any(a == "live-artifacts" and argv[i + 1 : i + 2] == ["mcp"] for i, a in enumerate(argv))
 
 
 def should_listen(mode: str) -> bool:

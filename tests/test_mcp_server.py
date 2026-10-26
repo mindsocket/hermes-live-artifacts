@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 
 import pytest
 
@@ -72,6 +73,8 @@ def test_export_ignores_path(tools_store, tmp_path):
 def test_serving_mcp_detects_subcommand(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["hermes", "-p", "w", "live-artifacts", "mcp"])
     assert serving_mcp()
+    monkeypatch.setattr(sys, "argv", ["hermes", "-p", "live-artifacts", "live-artifacts", "mcp"])
+    assert serving_mcp()
     monkeypatch.setattr(sys, "argv", ["hermes", "live-artifacts", "list"])
     assert not serving_mcp()
     monkeypatch.setattr(sys, "argv", ["hermes", "chat"])
@@ -104,6 +107,8 @@ def test_stdio_round_trip(tmp_path):
         env={**os.environ, "HERMES_HOME": str(tmp_path)},
     )
     by_id: dict = {}
+    watchdog = threading.Timer(30, proc.kill)  # a hung server fails the test instead of the CI job
+    watchdog.start()
     try:
         for m in msgs:
             proc.stdin.write(json.dumps(m) + "\n")
@@ -114,7 +119,19 @@ def test_stdio_round_trip(tmp_path):
             msg = json.loads(line)
             by_id[msg.get("id")] = msg
     finally:
+        watchdog.cancel()
         proc.kill()
         proc.wait()
-    assert len(by_id[2]["result"]["tools"]) == 9
+    assert len(by_id[2]["result"]["tools"]) == len(tools.TOOLS) + 1
     assert by_id[3]["result"]["isError"] is True
+
+
+def test_wake_is_stripped_and_session_key_cleared(tools_store, monkeypatch):
+    h = mcp_server._handlers()
+    monkeypatch.setenv("HERMES_SESSION_KEY", "agent:main:x")
+    monkeypatch.setattr(sys, "argv", ["x"])
+    made = json.loads(mcp_server.call(h, "live_artifact_create", {"title": "t", "html": "<p>x</p>", "wake": False})[0])
+    assert made["wake"] is True  # the argument was dropped
+    mcp_server.os.environ.pop("HERMES_SESSION_KEY", None)  # what cmd_mcp does at start
+    made = json.loads(mcp_server.call(h, "live_artifact_create", {"title": "t", "html": "<p>x</p>"})[0])
+    assert made["push_on_notify"] is False
