@@ -47,6 +47,19 @@ The agent is also given two skills, loaded with `skill_view(name="live-artifacts
     hermes live-artifacts archive <id> [--json]
     hermes live-artifacts delete <id> [-y] [--json]
     hermes live-artifacts export <id> [--out <file.json>]
+    hermes live-artifacts mcp
+
+## Claude Code
+
+`hermes live-artifacts mcp` serves the artifact tools over stdio MCP, so Claude Code on the same machine can create, read and
+update artifacts in the same store as Hermes. The gateway listener must be running to open the links. Add it with:
+
+    claude mcp add live-artifacts -- hermes live-artifacts mcp
+
+Use `hermes -p <profile> live-artifacts mcp` for a non-default profile (the plugin must be installed in that profile). The
+skills are served by the `live_artifact_skill` tool. Claude Code is not pushed a notice when a page is submitted: tell it you are
+done and it re-reads the artifact. Needs `mcp` 2.x, which the Hermes Python provides; the server never starts the HTTP listener,
+whatever `listen_process` is set to. `live_artifact_export` over MCP always writes to the exports directory (no custom `path`).
 
 ## Dashboard and Desktop support
 
@@ -84,6 +97,8 @@ Pages can call MCP tools only after you list the servers under `plugins.entries.
   `$HERMES_HOME/plugin-data/live-artifacts/exports/`, or to a `path` the agent supplies if Hermes write policy allows it.
 - Runs a long-lived HTTP listener inside the Hermes gateway process (default `127.0.0.1:47318`; see Configuration for
   binding it to your tailnet). It serves pages and takes input from whoever holds a link.
+- `hermes live-artifacts mcp` is a stdio server started by an MCP client such as Claude Code. It opens no port and shares the
+  SQLite file with the gateway.
 - Runs one subprocess, only when `listen_host` is `tailscale`: `tailscale ip -4`, to learn this node's tailnet address.
 - Pages run in a sandboxed frame and can reach MCP tools only through the allowlist above.
 - No telemetry, no outbound network calls, no stored credentials, no hooks or middleware.

@@ -128,7 +128,7 @@ the page stays editable unless you stop it.
 
 ## Agent side
 
-- `live_artifact_create(title, html, capabilities?, pinned?, seed?, wake?)` returns the deep link and
+- `live_artifact_create(title, html, capabilities?, pinned?, seed?, wake?)` (`wake` is Hermes-only; MCP has no such parameter) returns the deep link and
   `push_on_notify`. Share the link with the user. In Hermes Desktop, also emit `::live-artifact{id="<id>"}` as its
   own paragraph: it renders an inline interactive preview in the conversation. Where the plugin's desktop half is
   absent it stays a readable line of text, so keep the link too.
@@ -142,12 +142,14 @@ the page stays editable unless you stop it.
 
 ### Notify: do not poll
 
-An artifact created from a chat session remembers that session. When the page notifies, a short notice arrives in
+An artifact created from a Hermes chat session remembers that session. When the page notifies, a short notice arrives in
 that session as a new message starting `[artifact notified]`. It says the artifact is ready and nothing else. So:
 share the link, say what you will do with the answers, and end your turn. Do not loop on `live_artifact_read`.
+This applies only when `push_on_notify` is true. Over MCP (Claude Code) it is always false and nothing is pushed: share
+the link, ask the user to tell you when they have submitted, then call `live_artifact_read`.
 
 - `push_on_notify` in the create result says whether this will happen. It is false when created from CLI or cron,
-  or when `wake=false`. Then the user has to tell you they are done, and you call `live_artifact_read`.
+  or when `wake=false` (Hermes). Then the user has to tell you they are done, and you call `live_artifact_read`.
 - Notifications closer together than 5 seconds push once, so a page that notifies in a loop does not flood the
   session. The notice is always there in `live_artifact_read` as the notification time.
 - The notice contains no page data. Everything the user entered is read with `live_artifact_read`, and it is user-supplied
