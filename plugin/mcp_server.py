@@ -22,12 +22,13 @@ from .server import tools
 SKILLS_DIR = Path(__file__).parent / "skills"
 MIN_MCP_MAJOR = 2  # the lowlevel Server(on_list_tools=...) / mcp_types API
 logger = logging.getLogger(__name__)
+RESOURCE_PREFIX = "live-artifacts://skills/"
 
-# Hermes agents load skills with `skill_view`; MCP clients have no such tool, so the skills are served by one tool instead.
-_SKILL_VIEW_SENTENCE = re.compile(r"Before writing the html, load the `capabilities` skill[^.]*?\. ")
+# Hermes agents load skills as `live-artifacts:<name>`; MCP clients read them as resources instead.
+_SKILL_SENTENCE = re.compile(r"Before writing the html, load [^.]*?\. ")
 _SKILL_POINTER = (
-    'Before writing the html, call `live_artifact_skill` with name "capabilities" (the page-side db API) and, for '
-    'layout and theming, name "design". '
+    f"Before writing the html, read the `{RESOURCE_PREFIX}capabilities` MCP resource (the page-side db API) and, for "
+    f"layout and theming, the `{RESOURCE_PREFIX}design` MCP resource. "
 )
 
 
@@ -35,21 +36,18 @@ def _skill_names() -> list[str]:
     return sorted(p.parent.name for p in SKILLS_DIR.glob("*/SKILL.md"))
 
 
-def live_artifact_skill(args: dict, **_kw) -> str:
-    name, names = args.get("name"), _skill_names()
-    if name not in names:
-        return json.dumps({"ok": False, "error": f"unknown skill {name!r}; available: {names}"})
+def _skill_description(name: str) -> str:
+    from . import _skill_frontmatter
+
+    return str(_skill_frontmatter(SKILLS_DIR / name / "SKILL.md").get("description", ""))
+
+
+def read_skill(uri: str) -> str:
+    """Text of the skill a `live-artifacts://skills/<name>` URI names; ValueError if there is none."""
+    name = uri.removeprefix(RESOURCE_PREFIX) if uri.startswith(RESOURCE_PREFIX) else None
+    if name not in _skill_names():
+        raise ValueError(f"unknown resource {uri!r}; available: {[RESOURCE_PREFIX + n for n in _skill_names()]}")
     return (SKILLS_DIR / name / "SKILL.md").read_text(encoding="utf-8")
-
-
-def _skill_schema() -> dict:
-    return tools._schema(
-        "live_artifact_skill",
-        "Read a guide for writing live artifact pages: `capabilities` (the window.claude db / notify API a page uses "
-        "to store and return input) or `design` (layout, theming, what the page frame provides). Read before writing html.",
-        {"name": {"type": "string", "enum": _skill_names()}},
-        ["name"],
-    )
 
 
 def _for_mcp(schema: dict) -> dict:
@@ -59,7 +57,7 @@ def _for_mcp(schema: dict) -> dict:
     desc = schema["description"]
     props.pop("wake", None)
     if schema["name"] == "live_artifact_create":
-        desc = _SKILL_VIEW_SENTENCE.sub(_SKILL_POINTER, desc).replace(" Pass wake=false to opt out.", "")
+        desc = _SKILL_SENTENCE.sub(_SKILL_POINTER, desc).replace(" Pass wake=false to opt out.", "")
     if schema["name"] == "live_artifact_export":
         props.pop("path", None)
     return {**schema, "description": desc, "parameters": {**schema["parameters"], "properties": props}}
@@ -67,7 +65,7 @@ def _for_mcp(schema: dict) -> dict:
 
 def _handlers() -> dict:
     out = {}
-    for schema, handler in [*tools.TOOLS, (_skill_schema(), live_artifact_skill)]:
+    for schema, handler in tools.TOOLS:
         schema = _for_mcp(schema)
         out[schema["name"]] = (schema, handler)
     return out
@@ -124,11 +122,36 @@ async def serve(sdk=None) -> None:
             ]
         )
 
+    async def on_list_resources(ctx, params) -> types.ListResourcesResult:
+        return types.ListResourcesResult(
+            resources=[
+                types.Resource(
+                    name=f"live-artifacts:{n}",
+                    uri=RESOURCE_PREFIX + n,
+                    description=_skill_description(n),
+                    mime_type="text/markdown",
+                )
+                for n in _skill_names()
+            ]
+        )
+
+    async def on_read_resource(ctx, params: types.ReadResourceRequestParams) -> types.ReadResourceResult:
+        text = read_skill(str(params.uri))
+        return types.ReadResourceResult(
+            contents=[types.TextResourceContents(uri=str(params.uri), mime_type="text/markdown", text=text)]
+        )
+
     async def on_call_tool(ctx, params: types.CallToolRequestParams) -> types.CallToolResult:
         text, is_error = await asyncio.to_thread(call, handlers, params.name, params.arguments)
         return types.CallToolResult(content=[types.TextContent(text=text)], is_error=is_error)
 
-    server = Server("live-artifacts", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
+    server = Server(
+        "live-artifacts",
+        on_list_tools=on_list_tools,
+        on_call_tool=on_call_tool,
+        on_list_resources=on_list_resources,
+        on_read_resource=on_read_resource,
+    )
     async with stdio_server() as (read, write):
         await server.run(read, write, server.create_initialization_options())
 

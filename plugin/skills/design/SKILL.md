@@ -5,7 +5,7 @@ description: Use before writing the HTML and CSS of an artifact page. Mobile-fir
 
 # Live artifact page design (live-artifacts)
 
-Load the `capabilities` skill first if the page stores or submits anything. The "What the page frame provides"
+Load the `live-artifacts:capabilities` skill (over MCP: the `live-artifacts://skills/capabilities` resource) first if the page stores or submits anything. The "What the page frame provides"
 section is the authority on platform behaviour; general web advice applies where it says nothing.
 
 ## What the page frame provides
