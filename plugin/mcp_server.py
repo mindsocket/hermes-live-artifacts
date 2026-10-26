@@ -32,6 +32,14 @@ _SKILL_POINTER = (
 )
 
 
+INSTRUCTIONS = (
+    "Tools to create and edit interactive HTML pages (forms, review lists, dashboards) that the user opens by link. "
+    f"Before writing page html, read the `{RESOURCE_PREFIX}capabilities` MCP resource (the page-side db API) and, for "
+    f"layout and theming, the `{RESOURCE_PREFIX}design` MCP resource. Nothing is pushed when the user submits: ask them "
+    "to tell you, then call live_artifact_read."
+)
+
+
 def _skill_names() -> list[str]:
     return sorted(p.parent.name for p in SKILLS_DIR.glob("*/SKILL.md"))
 
@@ -147,6 +155,7 @@ async def serve(sdk=None) -> None:
 
     server = Server(
         "live-artifacts",
+        instructions=INSTRUCTIONS,
         on_list_tools=on_list_tools,
         on_call_tool=on_call_tool,
         on_list_resources=on_list_resources,
