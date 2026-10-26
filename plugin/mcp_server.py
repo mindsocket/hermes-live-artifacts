@@ -24,7 +24,7 @@ MIN_MCP_MAJOR = 2  # the lowlevel Server(on_list_tools=...) / mcp_types API
 logger = logging.getLogger(__name__)
 
 # Hermes agents load skills with `skill_view`; MCP clients have no such tool, so the skills are served by one tool instead.
-_SKILL_VIEW_SENTENCE = re.compile(r"Before writing the html, call `skill_view\([^`]*`[^.]*?\. ")
+_SKILL_VIEW_SENTENCE = re.compile(r"Before writing the html, load the `capabilities` skill[^.]*?\. ")
 _SKILL_POINTER = (
     'Before writing the html, call `live_artifact_skill` with name "capabilities" (the page-side db API) and, for '
     'layout and theming, name "design". '

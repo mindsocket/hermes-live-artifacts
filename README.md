@@ -34,7 +34,7 @@ then restart the gateway.
     live_artifact_read(id)                  status plus every document
     live_artifact_list / live_artifact_db_write / live_artifact_archive / live_artifact_delete / live_artifact_export
 
-The agent is also given two skills, loaded with `skill_view(name="live-artifacts:capabilities")` and `skill_view(name="live-artifacts:design")` (no `plugin:` prefix).
+The agent is also given two skills, `capabilities` and `design`, which it loads by name.
 
 ## CLI commands
 

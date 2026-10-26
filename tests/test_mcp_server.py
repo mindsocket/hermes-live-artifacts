@@ -26,16 +26,16 @@ def test_create_description_is_mcp_specific_and_hermes_untouched():
     # push guidance is conditional, so it is not misleading over MCP
     assert "push_on_notify is false" in schema["description"]
     hermes = next(s for s, _ in tools.TOOLS if s["name"] == "live_artifact_create")
-    assert "skill_view" in hermes["description"] and "wake" in hermes["parameters"]["properties"]
+    assert "load the `capabilities` skill" in hermes["description"] and "wake" in hermes["parameters"]["properties"]
 
 
 def test_export_has_no_path_over_mcp():
     assert "path" not in mcp_server._handlers()["live_artifact_export"][0]["parameters"]["properties"]
 
 
-def test_skills_name_both_harnesses():
-    design = (mcp_server.SKILLS_DIR / "design" / "SKILL.md").read_text()
-    assert "skill_view" in design and "live_artifact_skill" in design
+def test_skills_are_harness_agnostic():
+    for md in mcp_server.SKILLS_DIR.glob("*/SKILL.md"):
+        assert "skill_view" not in md.read_text()
 
 
 def test_skill_tool_returns_text_and_rejects_unknown():
