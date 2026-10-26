@@ -16,6 +16,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -100,6 +101,13 @@ def in_gateway() -> bool:
         return int(rec.get("pid")) == os.getpid()
     except (OSError, ValueError, TypeError, AttributeError):
         return False
+
+
+def serving_mcp() -> bool:
+    """True when this process is `hermes [-p x] live-artifacts mcp`: a stdio server that must never bind a port
+    (whatever listen_process says) and whose stdout belongs to JSON-RPC."""
+    argv = sys.argv
+    return "live-artifacts" in argv and argv[argv.index("live-artifacts") + 1 :][:1] == ["mcp"]
 
 
 def should_listen(mode: str) -> bool:
@@ -274,7 +282,9 @@ def register(ctx) -> None:
     from .cli import register_cli
 
     register_cli(ctx)
-    if should_listen(cfg["listen_process"]):
+    if serving_mcp():
+        logger.info("live-artifacts: stdio MCP process, listener not started")
+    elif should_listen(cfg["listen_process"]):
         _start_listener(ctx, cfg)
     else:
         logger.info("live-artifacts: tools only in this process (listen_process=%s)", cfg["listen_process"])

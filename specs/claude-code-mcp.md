@@ -1,6 +1,8 @@
 # Spec: Claude Code access via a stdio MCP server
 
-Status: draft, tracer-bullet first. No GitHub issue until the tracer shows it is worth doing.
+Status: shipped (PR #18) with the full tool set. Option A (re-read on request) is the notify story; B-F stay open.
+Deviations from the draft below: all tools plus `live_artifact_skill` are served; `wake` and export `path` are removed from the MCP schemas;
+skill text names both `skill_view` (Hermes) and `live_artifact_skill` (MCP); `mcp` >= 2 is checked at start; the process never binds the listener.
 
 ## Goal
 

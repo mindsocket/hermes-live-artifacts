@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import re
 import sys
 from pathlib import Path
@@ -18,6 +19,8 @@ from pathlib import Path
 from .server import tools
 
 SKILLS_DIR = Path(__file__).parent / "skills"
+MIN_MCP_MAJOR = 2  # the lowlevel Server(on_list_tools=...) / mcp_types API
+logger = logging.getLogger(__name__)
 
 # Hermes agents load skills with `skill_view`; MCP clients have no such tool, so the skills are served by one tool instead.
 _SKILL_VIEW_SENTENCE = re.compile(r"Before writing the html, call `skill_view\([^`]*`[^.]*?\. ")
@@ -32,11 +35,10 @@ def _skill_names() -> list[str]:
 
 
 def live_artifact_skill(args: dict, **_kw) -> str:
-    name = args.get("name")
-    md = SKILLS_DIR / str(name) / "SKILL.md"
-    if name not in _skill_names():
-        return json.dumps({"ok": False, "error": f"unknown skill {name!r}; available: {_skill_names()}"})
-    return md.read_text(encoding="utf-8")
+    name, names = args.get("name"), _skill_names()
+    if name not in names:
+        return json.dumps({"ok": False, "error": f"unknown skill {name!r}; available: {names}"})
+    return (SKILLS_DIR / name / "SKILL.md").read_text(encoding="utf-8")
 
 
 def _skill_schema() -> dict:
@@ -49,17 +51,58 @@ def _skill_schema() -> dict:
     )
 
 
+def _for_mcp(schema: dict) -> dict:
+    """Adapt a Hermes tool schema to MCP: no skill_view, no `wake` (nothing is ever pushed), no export `path`
+    (custom paths rely on Hermes write policy, which an MCP client does not go through)."""
+    props = dict(schema["parameters"]["properties"])
+    desc = schema["description"]
+    props.pop("wake", None)
+    if schema["name"] == "live_artifact_create":
+        desc = _SKILL_VIEW_SENTENCE.sub(_SKILL_POINTER, desc).replace(" Pass wake=false to opt out.", "")
+    if schema["name"] == "live_artifact_export":
+        props.pop("path", None)
+    return {**schema, "description": desc, "parameters": {**schema["parameters"], "properties": props}}
+
+
 def _handlers() -> dict:
     out = {}
     for schema, handler in [*tools.TOOLS, (_skill_schema(), live_artifact_skill)]:
-        if schema["name"] == "live_artifact_create":
-            schema = {**schema, "description": _SKILL_VIEW_SENTENCE.sub(_SKILL_POINTER, schema["description"])}
+        schema = _for_mcp(schema)
         out[schema["name"]] = (schema, handler)
     return out
 
 
+def call(handlers: dict, name: str, arguments: dict | None) -> tuple[str, bool]:
+    """Run one tool; returns (text, is_error). Handlers report failure as JSON `{"ok": false}`; anything they raise
+    is reported the same way instead of escaping as a protocol error."""
+    if name not in handlers:
+        return f"unknown tool {name}", True
+    args = arguments or {}
+    if name == "live_artifact_export":
+        args = {k: v for k, v in args.items() if k != "path"}
+    try:
+        text = handlers[name][1](args)
+    except Exception as e:
+        logger.warning("live-artifacts mcp: %s failed", name, exc_info=True)
+        return json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"}), True
+    try:
+        failed = json.loads(text).get("ok") is False
+    except (ValueError, AttributeError):
+        failed = False  # skill text, not a JSON result
+    return text, failed
+
+
+def _check_mcp_version() -> None:
+    from importlib.metadata import version
+
+    v = version("mcp")
+    if int(v.split(".")[0]) < MIN_MCP_MAJOR:
+        raise RuntimeError(f"mcp {v} is installed but live-artifacts mcp needs mcp>={MIN_MCP_MAJOR}")
+
+
 async def serve() -> None:
     # Imported here: `mcp` ships in the Hermes venv but is not a dependency of this package.
+    _check_mcp_version()
     import mcp_types as types
     from mcp.server.lowlevel import Server
     from mcp.server.stdio import stdio_server
@@ -75,11 +118,8 @@ async def serve() -> None:
         )
 
     async def on_call_tool(ctx, params: types.CallToolRequestParams) -> types.CallToolResult:
-        if params.name not in handlers:
-            return types.CallToolResult(content=[types.TextContent(text=f"unknown tool {params.name}")], is_error=True)
-        _, handler = handlers[params.name]
-        out = await asyncio.to_thread(handler, params.arguments or {})
-        return types.CallToolResult(content=[types.TextContent(text=out)])
+        text, is_error = await asyncio.to_thread(call, handlers, params.name, params.arguments)
+        return types.CallToolResult(content=[types.TextContent(text=text)], is_error=is_error)
 
     server = Server("live-artifacts", on_list_tools=on_list_tools, on_call_tool=on_call_tool)
     async with stdio_server() as (read, write):
@@ -91,7 +131,11 @@ def cmd_mcp(args: argparse.Namespace) -> int:
         asyncio.run(serve())
     except KeyboardInterrupt:
         pass
-    except ImportError as e:
-        print(f"live-artifacts mcp needs the `mcp` package (run it with Hermes' Python): {e}", file=sys.stderr)
+    except (ImportError, RuntimeError) as e:
+        print(
+            f"live-artifacts mcp: cannot start ({e}). It needs the `mcp` package (>={MIN_MCP_MAJOR}); "
+            "run it with Hermes' Python.",
+            file=sys.stderr,
+        )
         return 1
     return 0

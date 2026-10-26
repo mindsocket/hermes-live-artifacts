@@ -142,9 +142,11 @@ the page stays editable unless you stop it.
 
 ### Notify: do not poll
 
-An artifact created from a chat session remembers that session. When the page notifies, a short notice arrives in
+An artifact created from a Hermes chat session remembers that session. When the page notifies, a short notice arrives in
 that session as a new message starting `[artifact notified]`. It says the artifact is ready and nothing else. So:
 share the link, say what you will do with the answers, and end your turn. Do not loop on `live_artifact_read`.
+This applies only when `push_on_notify` is true. Over MCP (Claude Code) it is always false and nothing is pushed: share
+the link, ask the user to tell you when they have submitted, then call `live_artifact_read`.
 
 - `push_on_notify` in the create result says whether this will happen. It is false when created from CLI or cron,
   or when `wake=false`. Then the user has to tell you they are done, and you call `live_artifact_read`.
