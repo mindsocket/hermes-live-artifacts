@@ -9,6 +9,7 @@ Commands:
   archive   — Archive an artifact
   delete    — Delete an artifact and its documents
   export    — Export artifact bundle to JSON
+  mcp       — Serve the artifact tools over stdio MCP
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from .mcp_server import cmd_mcp
 from .server import admin, tools
 from .server.store import Store
 
@@ -346,6 +348,10 @@ def setup_cli_parser(parser: argparse.ArgumentParser) -> None:
     p_export.add_argument("id", help="Artifact ID")
     p_export.add_argument("--out", help="Write JSON to specified file path instead of stdout")
     p_export.set_defaults(func=cmd_export)
+
+    # mcp
+    p_mcp = subs.add_parser("mcp", help="Serve the artifact tools over stdio MCP (for Claude Code)")
+    p_mcp.set_defaults(func=cmd_mcp)
 
 
 def live_artifacts_main(args: argparse.Namespace) -> int:
