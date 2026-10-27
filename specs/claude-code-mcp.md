@@ -1,8 +1,8 @@
 # Spec: Claude Code access via a stdio MCP server
 
 Status: shipped (PR #18) with the full tool set. Option A (re-read on request) is the notify story; B-F stay open.
-Deviations from the draft below: all tools plus `live_artifact_skill` are served; `wake` and export `path` are removed from the MCP schemas;
-skill text names both `skill_view` (Hermes) and `live_artifact_skill` (MCP); `mcp` >= 2 is checked at start; the process never binds the listener.
+Deviations from the draft below: all tools are served, and the skills as resources `live-artifacts://skills/<name>`; `wake` and export `path` are removed from the MCP schemas;
+tool and skill text name the exact thing per harness (the `live-artifacts:<name>` skill in Hermes, the resource over MCP); `mcp` >= 2 is checked at start; the process never binds the listener.
 
 ## Goal
 
