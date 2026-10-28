@@ -44,7 +44,7 @@ def _format_time(ts: float | None) -> str:
     try:
         dt = datetime.fromtimestamp(ts, tz=UTC).astimezone()
         return dt.strftime("%Y-%m-%d %H:%M")
-    except Exception:
+    except (TypeError, ValueError, OverflowError, OSError):
         return str(ts)
 
 
@@ -212,7 +212,7 @@ def cmd_open(args: argparse.Namespace) -> int:
         webbrowser.open(link_url)
         console.print(f"[green]Opened:[/green] {link_url}")
         return 0
-    except Exception as e:
+    except webbrowser.Error as e:
         console_err.print(f"[red]Error opening browser:[/red] {e}")
         return 1
 

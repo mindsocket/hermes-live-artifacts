@@ -15,8 +15,10 @@ import logging
 import os
 import re
 import sys
+from importlib.metadata import version
 from pathlib import Path
 
+from . import _skill_frontmatter
 from .server import tools
 
 SKILLS_DIR = Path(__file__).parent / "skills"
@@ -45,8 +47,6 @@ def _skill_names() -> list[str]:
 
 
 def _skill_description(name: str) -> str:
-    from . import _skill_frontmatter
-
     return str(_skill_frontmatter(SKILLS_DIR / name / "SKILL.md").get("description", ""))
 
 
@@ -100,8 +100,6 @@ def call(handlers: dict, name: str, arguments: dict | None) -> tuple[str, bool]:
 
 
 def _check_mcp_version() -> None:
-    from importlib.metadata import version
-
     v = version("mcp")
     major = re.match(r"\d+", v)
     if not major or int(major.group()) < MIN_MCP_MAJOR:
@@ -111,9 +109,9 @@ def _check_mcp_version() -> None:
 def _load_sdk():
     # Imported here: `mcp` ships in the Hermes venv but is not a dependency of this package.
     _check_mcp_version()
-    import mcp_types as types
-    from mcp.server.lowlevel import Server
-    from mcp.server.stdio import stdio_server
+    import mcp_types as types  # noqa: PLC0415
+    from mcp.server.lowlevel import Server  # noqa: PLC0415
+    from mcp.server.stdio import stdio_server  # noqa: PLC0415
 
     return types, Server, stdio_server
 
