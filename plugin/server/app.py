@@ -320,7 +320,7 @@ def make_app(
             )
         try:
             body = await request.json()
-        except Exception:
+        except ValueError:  # bad JSON or bad UTF-8
             return web.json_response({"error": {"code": "invalid_argument", "message": "bad json"}}, status=400)
         if not isinstance(body, dict):
             # A non-object body (list, string, number) would 500 later in _dispatch; reject it here.

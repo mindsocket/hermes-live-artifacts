@@ -1,4 +1,5 @@
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -259,8 +260,6 @@ def test_seed_on_create(store):
 
 
 def test_concurrent_writers_two_connections(store, aid):
-    from concurrent.futures import ThreadPoolExecutor
-
     with ThreadPoolExecutor(8) as ex:
         list(ex.map(lambda i: store.set_doc(aid, f"c/d{i}", {"i": i}), range(40)))
     assert len(store.query(aid, "c")) == 40
@@ -295,8 +294,6 @@ def test_empty_or_short_key_file_is_refused_not_used(tmp_path, content):
 
 
 def test_concurrent_first_starts_agree_on_one_key(tmp_path):
-    from concurrent.futures import ThreadPoolExecutor
-
     with ThreadPoolExecutor(8) as ex:
         keys = list(ex.map(lambda _: Store(tmp_path)._key, range(8)))
     assert len(set(keys)) == 1 and keys[0] == (tmp_path / ".secret").read_bytes()

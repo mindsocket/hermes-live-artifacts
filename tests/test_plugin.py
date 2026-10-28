@@ -174,9 +174,7 @@ def test_large_saved_payload_does_not_reach_the_push(store):
 
 
 def test_register_wires_inject_message(monkeypatch, tmp_path):
-    from live_artifacts.server.store import Store as _Store
-
-    monkeypatch.setattr(plug, "store", lambda: _Store(tmp_path))
+    monkeypatch.setattr(plug, "store", lambda: Store(tmp_path))
     seen = {}
     real = plug.make_notifier
     monkeypatch.setattr(
@@ -270,18 +268,14 @@ class FakeCtx:
 
 
 def test_register_tools_only_when_not_listening(monkeypatch, tmp_path):
-    from live_artifacts.server.store import Store as _Store
-
-    monkeypatch.setattr(plug, "store", lambda: _Store(tmp_path))
+    monkeypatch.setattr(plug, "store", lambda: Store(tmp_path))
     ctx = FakeCtx({"listen_process": "none"})
     plug.register(ctx)
     assert len(ctx.tools) == 8 and "capabilities" in ctx.skills and ctx.spawned == []
 
 
 def test_register_all_skills_with_description(monkeypatch, tmp_path):
-    from live_artifacts.server.store import Store as _Store
-
-    monkeypatch.setattr(plug, "store", lambda: _Store(tmp_path))
+    monkeypatch.setattr(plug, "store", lambda: Store(tmp_path))
     ctx = FakeCtx({"listen_process": "none"})
     plug.register(ctx)
     assert sorted(ctx.skills) == ["capabilities", "design"]
@@ -291,9 +285,7 @@ def test_register_all_skills_with_description(monkeypatch, tmp_path):
 
 
 def test_register_listens_in_gateway_on_running_loop(monkeypatch, tmp_path):
-    from live_artifacts.server.store import Store as _Store
-
-    monkeypatch.setattr(plug, "store", lambda: _Store(tmp_path))
+    monkeypatch.setattr(plug, "store", lambda: Store(tmp_path))
     ctx = FakeCtx({})
 
     async def go():
@@ -304,9 +296,7 @@ def test_register_listens_in_gateway_on_running_loop(monkeypatch, tmp_path):
 
 
 def test_register_none_never_listens(monkeypatch, tmp_path):
-    from live_artifacts.server.store import Store as _Store
-
-    monkeypatch.setattr(plug, "store", lambda: _Store(tmp_path))
+    monkeypatch.setattr(plug, "store", lambda: Store(tmp_path))
     ctx = FakeCtx({"listen_process": "none"})
     plug.register(ctx)
     assert ctx.spawned == []

@@ -25,6 +25,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from .server import tools as _tools
+from .server.app import Listener
 from .server.store import hermes_home
 from .server.tools import TOOLS, store
 
@@ -206,8 +207,6 @@ def _skill_frontmatter(md: Path) -> dict:
 
 # ---------------------------------------------------------------- listener hosting
 def _start_listener(ctx, cfg: dict) -> None:
-    from .server.app import Listener
-
     notifier = make_notifier(store(), getattr(ctx, "inject_message", None), getattr(ctx, "emit", None))
     listener = Listener(
         store(),
@@ -279,7 +278,7 @@ def register(ctx) -> None:
                 # Pass description + frontmatter so the skill shows in <available_skills> with its trigger text.
                 fm = _skill_frontmatter(md)
                 ctx.register_skill(child.name, md, str(fm.get("description", "")), fm)
-    from .cli import register_cli
+    from .cli import register_cli  # noqa: PLC0415 - cli imports mcp_server, which imports this package
 
     register_cli(ctx)
     if serving_mcp():

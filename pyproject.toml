@@ -57,6 +57,8 @@ select = [
     "C4",  # flake8-comprehensions
     "UP",  # pyupgrade
     "RUF", # ruff-specific rules
+    "BLE", # blind except
+    "PLC0415", # imports outside top level
 ]
 ignore = [
     "E501",  # line too long (handled by formatter)

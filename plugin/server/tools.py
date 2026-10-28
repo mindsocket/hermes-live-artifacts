@@ -66,14 +66,14 @@ def current_session_key() -> str:
     Read per call from the gateway's context, so each artifact follows whichever chat created it."""
     key = ""
     try:
-        from gateway.session_context import get_session_env
+        from gateway.session_context import get_session_env  # noqa: PLC0415 - Hermes-only module
 
         key = get_session_env("HERMES_SESSION_KEY", "")
     except ImportError:
         pass
     if not key:
         try:
-            from tools.approval_context import get_current_session_key
+            from tools.approval_context import get_current_session_key  # noqa: PLC0415 - Hermes-only module
 
             key = get_current_session_key("")
         except ImportError:
@@ -203,7 +203,7 @@ def live_artifact_export(args: dict, **_kw) -> str:
         target = store().dir / "exports" / f"export-{time.strftime('%Y%m%dT%H%M%S')}.json"
     else:
         try:
-            from agent.file_safety import get_write_denied_error, is_write_approval_required
+            from agent.file_safety import get_write_denied_error, is_write_approval_required  # noqa: PLC0415 - Hermes-only module
         except ImportError:
             return _err("custom export paths need Hermes write policy, which is unavailable here; omit `path`")
         target = Path(path).expanduser().resolve()
