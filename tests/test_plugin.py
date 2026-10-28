@@ -91,7 +91,7 @@ def make(store, **kw):
 
 def test_push_is_a_notice_without_page_chosen_strings(store):
     """The push carries no title and no document data, so nothing from the web page enters the session
-    as an injected message; the agent reads it with live_artifact_read instead."""
+    as an injected message; the agent reads it with live_artifact_db_read instead."""
     a = make(store, origin_session="agent:main:telegram:group:1:2")
     sent, events = [], []
     plug.make_notifier(store, lambda c, **k: sent.append((c, k)) or True, lambda e, p: events.append((e, p)))(a)
@@ -99,7 +99,7 @@ def test_push_is_a_notice_without_page_chosen_strings(store):
     ((content, kw),) = sent
     assert kw == {"session_key": "agent:main:telegram:group:1:2"}
     assert content.startswith("[artifact notified]")
-    assert a["id"] in content and "1 document" in content and "live_artifact_read" in content
+    assert a["id"] in content and "1 document" in content and "live_artifact_db_read" in content
     assert "Trip review" not in content and '"pick"' not in content and "hello" not in content
     assert a["token"] not in content and "form" not in content
 
@@ -170,7 +170,7 @@ def test_large_saved_payload_does_not_reach_the_push(store):
     store.set_doc(a["id"], "big/x", {"blob": "y" * 50000})
     sent = []
     plug.make_notifier(store, lambda c, **k: sent.append(c) or True)(a)
-    assert "live_artifact_read" in sent[0] and "y" * 100 not in sent[0] and len(sent[0]) < 500
+    assert "live_artifact_db_read" in sent[0] and "y" * 100 not in sent[0] and len(sent[0]) < 500
 
 
 def test_register_wires_inject_message(monkeypatch, tmp_path):
@@ -271,7 +271,7 @@ def test_register_tools_only_when_not_listening(monkeypatch, tmp_path):
     monkeypatch.setattr(plug, "store", lambda: Store(tmp_path))
     ctx = FakeCtx({"listen_process": "none"})
     plug.register(ctx)
-    assert len(ctx.tools) == 8 and "capabilities" in ctx.skills and ctx.spawned == []
+    assert len(ctx.tools) == 9 and "capabilities" in ctx.skills and ctx.spawned == []
 
 
 def test_register_all_skills_with_description(monkeypatch, tmp_path):
@@ -443,3 +443,96 @@ def test_index_setting(value, expected):
 def test_invalid_index_setting_raises():
     with pytest.raises(ValueError, match="index"):
         plug.read_settings(lambda k, d: {"index": "bogus"}.get(k, d))
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "{id}",
+        "http://127.0.0.1:47318/a/{id}",
+        "https://host.example.ts.net/a/{id}?k=secret",
+        "host.example.ts.net/a/{id}/frame",
+    ],
+)
+def test_tools_accept_a_link_as_id(tools_store, value):
+    made = json.loads(t.live_artifact_create({"title": "t", "html": "<p>x</p>"}))
+    for fn in (t.live_artifact_read, t.live_artifact_db_read):
+        got = json.loads(fn({"id": value.format(id=made["id"])}))
+        assert got["ok"] and got["id"] == made["id"]
+    upd = json.loads(t.live_artifact_update({"id": value.format(id=made["id"]), "title": "u"}))
+    assert upd["ok"] and upd["title"] == "u"
+
+
+def test_unknown_link_is_an_error(tools_store):
+    assert json.loads(t.live_artifact_read({"id": "http://h/a/nope"}))["ok"] is False
+    assert json.loads(t.live_artifact_db_read({"id": "http://h/a/nope"}))["ok"] is False
+
+
+def test_read_is_the_page_and_db_read_is_the_data(tools_store):
+    made = json.loads(t.live_artifact_create({"title": "t", "html": "<p>x</p>", "seed": {"items/a": {"n": 1}}}))
+    page = json.loads(t.live_artifact_read({"id": made["id"]}))
+    assert "docs" not in page and "token" not in page and "html" not in page
+    assert page["capabilities"] == {"db": {}, "user": {}} and page["link"] == made["link"]
+    assert (t.work_dir() / page["html_file"]).read_text() == "<p>x</p>" and page["html_chars"] == 8
+    data = json.loads(t.live_artifact_db_read({"id": made["id"]}))
+    assert data["docs"] == {"items/a": {"n": 1}} and "html_file" not in data
+
+
+def test_each_read_gets_its_own_file(tools_store):
+    made = json.loads(t.live_artifact_create({"title": "t", "html": "<p>x</p>"}))
+    names = {json.loads(t.live_artifact_read({"id": made["id"]}))["html_file"] for _ in range(3)}
+    assert len(names) == 3
+
+
+def test_edit_the_read_file_then_update_from_it(tools_store):
+    made = json.loads(t.live_artifact_create({"title": "t", "html": "<p>x</p>"}))
+    page = json.loads(t.live_artifact_read({"id": made["id"]}))
+    (t.work_dir() / page["html_file"]).write_text("<p>edited</p>")
+    assert json.loads(t.live_artifact_update({"id": made["id"], "html_file": page["html_file"]}))["ok"]
+    assert tools_store.get_artifact(made["id"])["html"] == "<p>edited</p>"
+
+
+def test_create_from_a_work_file(tools_store):
+    (t.work_dir() / "draft.html").write_text("<p>draft</p>")
+    made = json.loads(t.live_artifact_create({"title": "t", "html_file": "draft.html"}))
+    assert made["ok"] and tools_store.get_artifact(made["id"])["html"] == "<p>draft</p>"
+
+
+def test_html_and_html_file_together_are_refused(tools_store):
+    (t.work_dir() / "d.html").write_text("<p>d</p>")
+    got = json.loads(t.live_artifact_create({"title": "t", "html": "<p>x</p>", "html_file": "d.html"}))
+    assert got["ok"] is False and "not both" in got["error"]
+
+
+def test_html_file_is_confined_to_the_work_dir(tools_store, tmp_path):
+    secret = tmp_path / "secret.txt"
+    secret.write_text("s3cret")
+    (t.work_dir() / "link.html").symlink_to(secret)
+    made = json.loads(t.live_artifact_create({"title": "t", "html": "<p>x</p>"}))
+    inside = t.work_dir() / "in.html"
+    inside.write_text("<p>in</p>")
+    for bad in (
+        str(secret),
+        str(inside),  # names only: a path is refused even inside work_dir
+        "../secret.txt",
+        "link.html",
+        "missing.html",
+        "",
+        3,
+    ):
+        for fn, args in (
+            (t.live_artifact_update, {"id": made["id"], "html_file": bad}),
+            (t.live_artifact_create, {"title": "t", "html_file": bad}),
+        ):
+            got = json.loads(fn(args))
+            assert got["ok"] is False, (fn.__name__, bad)
+    assert tools_store.get_artifact(made["id"])["html"] == "<p>x</p>"
+
+
+def test_read_description_names_the_work_dir(tools_store):
+    read = next(s for s, _ in t.tool_schemas() if s["name"] == "live_artifact_read")
+    assert read["description"].endswith(f"work_dir: {t.work_dir()}")
+    for s, _ in t.tool_schemas():
+        assert "{work_dir}" not in json.dumps(s)
+        if "html_file" in s["parameters"]["properties"]:
+            assert str(t.work_dir()) in s["parameters"]["properties"]["html_file"]["description"]

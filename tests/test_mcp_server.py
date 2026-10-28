@@ -24,7 +24,8 @@ def test_create_description_is_mcp_specific_and_hermes_untouched():
     assert "wake" not in schema["parameters"]["properties"]
     assert "Pass wake=false" not in schema["description"]
     # push guidance is conditional, so it is not misleading over MCP
-    assert "push_on_notify is false" in schema["description"]
+    assert "when false, ask" in schema["description"]
+    assert "live-artifacts:capabilities" not in schema["description"]
     hermes = next(s for s, _ in tools.TOOLS if s["name"] == "live_artifact_create")
     assert (
         "`live-artifacts:capabilities` skill" in hermes["description"] and "wake" in hermes["parameters"]["properties"]
@@ -49,6 +50,10 @@ def test_create_then_read(tools_store):
     assert not err and made["ok"] and made["push_on_notify"] is False
     text, err = mcp_server.call(h, "live_artifact_read", {"id": made["id"]})
     assert not err and json.loads(text)["title"] == "t"
+    text, err = mcp_server.call(h, "live_artifact_read", {"id": made["link"]})
+    assert not err and json.loads(text)["html_file"]
+    text, err = mcp_server.call(h, "live_artifact_db_read", {"id": made["id"]})
+    assert not err and json.loads(text)["docs"] == {}
 
 
 def test_failures_set_is_error(tools_store):

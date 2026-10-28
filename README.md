@@ -25,14 +25,17 @@ then restart the gateway.
 - The listener runs inside the Hermes gateway and serves each artifact at `<base_url>/a/<id>`.
 - Pages see `window.claude`. A db save can carry `{notify: true}`, and `claude.notify()` stands alone: either tells the
   agent the data is ready for review. When the artifact was created from a chat session, the notify pushes a fixed
-  `[artifact notified]` notice into that session; the agent then reads the data with `live_artifact_read`.
+  `[artifact notified]` notice into that session; the agent then reads the data with `live_artifact_db_read`.
 
 ## Tools
 
-    live_artifact_create(title, html, capabilities?, pinned?, seed?, wake?)   returns the link and push_on_notify
-    live_artifact_update(id, html?, ...)    in place; db contents kept
-    live_artifact_read(id)                  status plus every document
+    live_artifact_create(title, html | html_file, capabilities?, pinned?, seed?, wake?)   returns the link and push_on_notify
+    live_artifact_read(id)                  the page: status, link, capabilities, html_file (a copy to edit)
+    live_artifact_update(id, html? | html_file?, ...)   in place; db contents kept
+    live_artifact_db_read(id)               the data: status plus every document
     live_artifact_list / live_artifact_db_write / live_artifact_archive / live_artifact_delete / live_artifact_export
+
+Wherever a tool takes `id`, the artifact's link works too.
 
 The agent is also given two skills, `live-artifacts:capabilities` and `live-artifacts:design`. Over MCP they are the resources
 `live-artifacts://skills/capabilities` and `live-artifacts://skills/design`.
@@ -96,6 +99,7 @@ Pages can call MCP tools only after you list the servers under `plugins.entries.
   Page data is plain rows on disk. Backups and the `.secret` key file are covered in [docs/security.md](docs/security.md).
 - `live_artifact_export` writes a JSON dump (including artifact tokens and entered data) to
   `$HERMES_HOME/plugin-data/live-artifacts/exports/`, or to a `path` the agent supplies if Hermes write policy allows it.
+- `live_artifact_read/create/update` tools can read/write page HTML files in Hermes' defined and managed scratch dir.
 - Runs a long-lived HTTP listener inside the Hermes gateway process (default `127.0.0.1:47318`; see Configuration for
   binding it to your tailnet). It serves pages and takes input from whoever holds a link.
 - `hermes live-artifacts mcp` is a stdio server started by an MCP client such as Claude Code. It opens no port and shares the

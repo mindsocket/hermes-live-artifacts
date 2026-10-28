@@ -27,10 +27,10 @@ logger = logging.getLogger(__name__)
 RESOURCE_PREFIX = "live-artifacts://skills/"
 
 # Hermes agents load skills as `live-artifacts:<name>`; MCP clients read them as resources instead.
-_SKILL_SENTENCE = re.compile(r"Before writing the html, load [^.]*?\. ")
+_SKILL_SENTENCE = re.compile(r"First load the `live-artifacts:capabilities` skill [^.]*?\. ")
 _SKILL_POINTER = (
-    f"Before writing the html, read the `{RESOURCE_PREFIX}capabilities` MCP resource (the page-side db API) and, for "
-    f"layout and theming, the `{RESOURCE_PREFIX}design` MCP resource. "
+    f"First read the `{RESOURCE_PREFIX}capabilities` MCP resource (page-side db, notify, what happens on submit) and "
+    f"the `{RESOURCE_PREFIX}design` MCP resource (layout, theming). "
 )
 
 
@@ -38,7 +38,8 @@ INSTRUCTIONS = (
     "Tools to create and edit interactive HTML pages (forms, review lists, dashboards) that the user opens by link. "
     f"Before writing page html, read the `{RESOURCE_PREFIX}capabilities` MCP resource (the page-side db API) and, for "
     f"layout and theming, the `{RESOURCE_PREFIX}design` MCP resource. Nothing is pushed when the user submits: ask them "
-    "to tell you, then call live_artifact_read."
+    "to tell you, then call live_artifact_db_read. To change or reuse an existing page, live_artifact_read writes its "
+    "html to a file in work_dir; edit that and pass its name as html_file."
 )
 
 
@@ -65,7 +66,7 @@ def _for_mcp(schema: dict) -> dict:
     desc = schema["description"]
     props.pop("wake", None)
     if schema["name"] == "live_artifact_create":
-        desc = _SKILL_SENTENCE.sub(_SKILL_POINTER, desc).replace(" Pass wake=false to opt out.", "")
+        desc = _SKILL_SENTENCE.sub(_SKILL_POINTER, desc)
     if schema["name"] == "live_artifact_export":
         props.pop("path", None)
     return {**schema, "description": desc, "parameters": {**schema["parameters"], "properties": props}}
@@ -73,7 +74,7 @@ def _for_mcp(schema: dict) -> dict:
 
 def _handlers() -> dict:
     out = {}
-    for schema, handler in tools.TOOLS:
+    for schema, handler in tools.tool_schemas():
         schema = _for_mcp(schema)
         out[schema["name"]] = (schema, handler)
     return out

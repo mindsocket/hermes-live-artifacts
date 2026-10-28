@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import secrets
 import tempfile
 import time
 from pathlib import Path
 from typing import Any
 
 from . import mcp as mcp_mod
-from .store import DbError, Store
+from .store import DbError, Store, hermes_home
 
 _store: Store | None = None
 
@@ -25,6 +27,7 @@ def store() -> Store:
 _base_url = "http://127.0.0.1:47318"
 _link_secret = True
 _index = False
+_work_dir: Path | None = None  # tests point this elsewhere
 
 
 def configure(base_url: str, link_secret: bool = True, index: bool = False) -> None:
@@ -91,6 +94,58 @@ def _summary(a: dict) -> dict:
     return out
 
 
+_LINK_ID = re.compile(r"/a/([A-Za-z0-9_-]+)")
+
+
+def artifact_id(value: Any) -> Any:
+    """Accept an artifact link (`.../a/<id>`, with or without `/frame` or `?k=`) wherever an id is expected."""
+    if isinstance(value, str) and "/a/" in value:
+        m = _LINK_ID.search(value.split("?", 1)[0])
+        if m:
+            return m.group(1)
+    return value
+
+
+def work_dir() -> Path:
+    """Where page source is handed to the agent as files: `live-artifacts/` in Hermes' scratch dir, which every
+    session is told about and which is pruned when idle. Nothing here is managed state; the store is the source."""
+    if _work_dir is not None:
+        base = _work_dir
+    else:
+        try:
+            from hermes_constants import get_scratch_dir  # noqa: PLC0415 - Hermes-only module
+        except ImportError:  # outside Hermes (e2e fixture): the same layout under hermes_home()
+            scratch = hermes_home() / "cache" / "scratch"
+        else:
+            scratch = get_scratch_dir()
+        base = scratch / "live-artifacts"
+    base.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return base
+
+
+def _read_work_file(name: Any) -> str:
+    """Text of `name`, a file name (or relative path) in the work dir. Anything resolving outside it is refused,
+    so a tool argument cannot copy an arbitrary local file into a served page."""
+    if not isinstance(name, str) or not name:
+        raise ValueError("html_file must be a file name in work_dir")
+    rel = Path(name)
+    if rel.is_absolute() or ".." in rel.parts:
+        raise ValueError("html_file is a file name in work_dir, not a path")
+    root = work_dir().resolve()
+    target = (root / rel).resolve()
+    if not target.is_relative_to(root) or not target.is_file():
+        raise ValueError(f"no file {name!r} in work_dir ({root})")
+    return target.read_text(encoding="utf-8")
+
+
+def _html_arg(args: dict) -> str | None:
+    if args.get("html") is not None and args.get("html_file") is not None:
+        raise ValueError("pass html or html_file, not both")
+    if args.get("html_file") is not None:
+        return _read_work_file(args["html_file"])
+    return args.get("html")
+
+
 def _capabilities(caps: Any, *, default: dict | None) -> dict | None:
     """Accept a capability map or a bare list of names, and validate any `mcp` manifest."""
     if caps is None:
@@ -103,10 +158,10 @@ def _capabilities(caps: Any, *, default: dict | None) -> dict | None:
 
 
 def live_artifact_create(args: dict, **_kw) -> str:
-    title, html = args.get("title"), args.get("html")
-    if not title or not html:
-        return _err("title and html are required")
     try:
+        title, html = args.get("title"), _html_arg(args)
+        if not title or not html:
+            return _err("title and html (or html_file) are required")
         caps = _capabilities(args.get("capabilities"), default={"db": {}, "user": {}})
         a = store().create_artifact(
             title,
@@ -123,13 +178,13 @@ def live_artifact_create(args: dict, **_kw) -> str:
 
 
 def live_artifact_update(args: dict, **_kw) -> str:
-    aid = args.get("id")
+    aid = artifact_id(args.get("id"))
     try:
         caps = _capabilities(args.get("capabilities"), default=None)
         a = store().update_artifact(
             aid,
             title=args.get("title"),
-            html=args.get("html"),
+            html=_html_arg(args),
             capabilities=caps,
             pinned=args.get("pinned"),
             wake=args.get("wake"),
@@ -147,7 +202,26 @@ def live_artifact_list(args: dict, **_kw) -> str:
 
 
 def live_artifact_read(args: dict, **_kw) -> str:
-    aid = args.get("id")
+    """The page. Its html goes to a fresh file in the work dir rather than into the result: pages are large, and the
+    agent edits the file with its own tools and hands the name back to live_artifact_update."""
+    aid = artifact_id(args.get("id"))
+    a = store().get_artifact(aid)
+    if a is None:
+        return _err(f"no such artifact {aid}")
+    name = f"{aid}-{secrets.token_hex(3)}.html"  # one copy per read, so two sessions never edit the same file
+    target = work_dir() / name
+    target.write_text(a["html"], encoding="utf-8")
+    return _ok(
+        **_summary(a),
+        link=link(a),
+        capabilities=a["capabilities"],
+        html_file=name,
+        html_chars=len(a["html"]),
+    )
+
+
+def live_artifact_db_read(args: dict, **_kw) -> str:
+    aid = artifact_id(args.get("id"))
     st = store()
     a = st.get_artifact(aid)
     if a is None:
@@ -157,7 +231,7 @@ def live_artifact_read(args: dict, **_kw) -> str:
 
 
 def live_artifact_db_write(args: dict, **_kw) -> str:
-    aid, path, data = args.get("id"), args.get("path"), args.get("data")
+    aid, path, data = artifact_id(args.get("id")), args.get("path"), args.get("data")
     try:
         store().set_doc(aid, path, data)
     except DbError as e:
@@ -167,18 +241,18 @@ def live_artifact_db_write(args: dict, **_kw) -> str:
 
 def live_artifact_archive(args: dict, **_kw) -> str:
     try:
-        store().archive(args.get("id"))
+        store().archive(aid := artifact_id(args.get("id")))
     except KeyError:
         return _err("no such artifact")
-    return _ok(archived=args.get("id"))
+    return _ok(archived=aid)
 
 
 def live_artifact_delete(args: dict, **_kw) -> str:
     try:
-        store().delete(args.get("id"))
+        store().delete(aid := artifact_id(args.get("id")))
     except KeyError:
         return _err("no such artifact")
-    return _ok(deleted=args.get("id"))
+    return _ok(deleted=aid)
 
 
 def _write_json_atomic(target: Path, dump: dict) -> None:
@@ -224,51 +298,57 @@ def _schema(name: str, desc: str, props: dict, required: list[str]) -> dict:
     }
 
 
-_ID = {"type": "string", "description": "Artifact id"}
+_ID = {"type": "string", "description": "Artifact id or link"}
+_HTML_FILE = {
+    "type": "string",
+    "description": "Instead of html: a file name in work_dir ({work_dir})",
+}
 TOOLS = [
     (
         _schema(
             "live_artifact_create",
-            "Create an interactive HTML artifact (form, review list, dashboard) the user opens by deep link. Before "
-            "writing the html, load the `live-artifacts:capabilities` skill (the page-side db API) and, for layout and "
-            "theming, the `live-artifacts:design` skill. Input is persisted to a per-artifact document DB readable via live_artifact_read. Page code uses "
-            "`const db = await claude.use('db')`. A save that should tell the agent the data is ready for review "
-            "passes `{notify: true}`, or the page calls `claude.notify()`. Returns the deep link. When the result "
-            "has push_on_notify=true (created from a chat session), a notify pushes a notice into that same session, so "
-            "do not poll: share the link and end your turn. Pass wake=false to opt out. When push_on_notify is false "
-            "nothing is pushed: share the link, ask the user to tell you when they have submitted, then call "
-            "live_artifact_read. Call this tool directly with the html "
-            "as a normal string argument; do not wrap it in the generic `tool_call` batch tool, whose `calls` argument is a "
-            "JSON string and breaks on HTML with nested quotes.",
+            "Create an interactive HTML page (form, review list, dashboard) the user opens by link. First load the "
+            "`live-artifacts:capabilities` skill (page-side db, notify, what happens on submit) and the "
+            "`live-artifacts:design` skill (layout, theming). Returns the link and push_on_notify: when true, the "
+            "page's notify pushes a notice into this session, so share the link and end your turn; when false, ask "
+            "the user to tell you when they are done. Then read their input with live_artifact_db_read. Call this "
+            "tool directly, not through the `tool_call` batch tool, whose JSON-string `calls` breaks on HTML.",
             {
                 "title": {"type": "string"},
                 "html": {"type": "string", "description": "Body HTML or full document"},
-                "wake": {
-                    "type": "boolean",
-                    "description": "Push a notice to this session when the page notifies (default true)",
-                },
+                "html_file": _HTML_FILE,
+                "wake": {"type": "boolean", "description": "Push a notice to this session on notify (default true)"},
                 "capabilities": {
                     "type": "object",
-                    "description": "Capability manifest: "
-                    "{db:{}, user:{}} by default. To let the page call MCP tools add "
-                    "mcp:{servers:[{server:'<configured MCP server>', tools:['<tool>']}]}; the operator must "
-                    "also list the server under plugins.entries.live-artifacts.mcp_allowlist.",
+                    "description": "Default {db:{}, user:{}}. For page MCP calls see the capabilities skill.",
                 },
                 "pinned": {"type": "boolean"},
                 "seed": {"type": "object", "description": "{docPath: body} initial docs"},
             },
-            ["title", "html"],
+            ["title"],
         ),
         live_artifact_create,
     ),
     (
         _schema(
+            "live_artifact_read",
+            "Read an artifact's page: status, link, capabilities, and html_file, a fresh copy of its HTML in "
+            "work_dir to edit and pass back to update or create. Use this, not a fetch, for a link the user gives "
+            "you. For what the user entered, use live_artifact_db_read. work_dir: {work_dir}",
+            {"id": _ID},
+            ["id"],
+        ),
+        live_artifact_read,
+    ),
+    (
+        _schema(
             "live_artifact_update",
-            "Update an artifact in place (db contents are preserved). Returns the link.",
+            "Update an artifact in place; its db is kept. html or html_file replaces the whole page. Returns the link.",
             {
                 "id": _ID,
                 "title": {"type": "string"},
                 "html": {"type": "string"},
+                "html_file": _HTML_FILE,
                 "capabilities": {"type": "object"},
                 "pinned": {"type": "boolean"},
                 "wake": {"type": "boolean"},
@@ -288,12 +368,12 @@ TOOLS = [
     ),
     (
         _schema(
-            "live_artifact_read",
-            "Read an artifact's status and all db documents (what the user entered).",
+            "live_artifact_db_read",
+            "Read an artifact's status and every db document (what the user entered), keyed by path.",
             {"id": _ID},
             ["id"],
         ),
-        live_artifact_read,
+        live_artifact_db_read,
     ),
     (
         _schema(
@@ -324,10 +404,17 @@ TOOLS = [
     (
         _schema(
             "live_artifact_export",
-            "Export all artifacts and docs to a JSON file; returns its path. Default location is the plugin's exports directory; `path` is checked against Hermes write policy.",
+            "Backup: export every artifact and its docs to a JSON file; returns its path. Default location is the "
+            "plugin's exports directory; `path` is checked against Hermes write policy.",
             {"path": {"type": "string"}},
             [],
         ),
         live_artifact_export,
     ),
 ]
+
+
+def tool_schemas() -> list[tuple[dict, Any]]:
+    """TOOLS with this instance's work dir filled in, so the agent is told the path rather than left to derive it."""
+    wd = json.dumps(str(work_dir()))[1:-1]
+    return [(json.loads(json.dumps(s).replace("{work_dir}", wd)), h) for s, h in TOOLS]
