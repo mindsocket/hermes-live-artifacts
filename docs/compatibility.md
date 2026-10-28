@@ -32,7 +32,8 @@ Claude's artifact tools are not part of the artifact API, so they are not carrie
 `live_artifact_*` tools listed in the README.
 
 Migrating an artifact means: copy its HTML into `live_artifact_create` (or `live_artifact_update` on an existing artifact),
-then seed its database documents with `live_artifact_db_write`. The skills under `plugin/skills/` teach the
+then seed its database documents with `live_artifact_db_write`. A large page can instead be saved in the tools'
+`work_dir` (its path is in the `live_artifact_read` description) and passed as `html_file`. The skills under `plugin/skills/` teach the
 agent this spelling.
 
 ## Differences

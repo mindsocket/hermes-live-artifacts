@@ -44,9 +44,10 @@ def store(tmp_path):
 
 
 @pytest.fixture
-def tools_store(monkeypatch, store):
-    """Point the agent tools at `store`; module settings are restored after the test."""
+def tools_store(monkeypatch, store, tmp_path):
+    """Point the agent tools at `store` and a throwaway work dir; module settings are restored after the test."""
     monkeypatch.setattr(tools, "_store", store)
+    monkeypatch.setattr(tools, "_work_dir", tmp_path / "work")
     monkeypatch.setattr(tools, "_base_url", tools._base_url)
     monkeypatch.setattr(tools, "_link_secret", tools._link_secret)
     monkeypatch.setattr(tools, "_index", tools._index)

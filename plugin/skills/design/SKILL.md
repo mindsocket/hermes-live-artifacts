@@ -153,10 +153,11 @@ Numbering, eyebrows and dividers should carry information. Number a list only wh
 
 ## Updating a page that has data
 
-`live_artifact_update` replaces the HTML and keeps the database. Keep the token block, the structure and the field names,
-so documents saved by the previous version still render. Treat every field as possibly absent. Give every form control
-a stable `id`, because the page matches stored values to controls by id. An open page does not reload itself; the
-user sees the new version after a reload, and autosaved entries come back with it.
+`live_artifact_update` replaces the HTML and keeps the database. If the current source is not in your context, edit
+the `html_file` from `live_artifact_read` and pass it back. Keep the token block, the structure and the field names,
+so documents saved by the previous version still render. Treat every field as possibly absent. Give every form
+control a stable `id`, because the page matches stored values to controls by id. An open page does not reload
+itself; the user sees the new version after a reload, and autosaved entries come back with it.
 
 ## Before you create the page
 

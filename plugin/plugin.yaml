@@ -11,6 +11,7 @@ provides_tools:
   - live_artifact_update
   - live_artifact_list
   - live_artifact_read
+  - live_artifact_db_read
   - live_artifact_db_write
   - live_artifact_archive
   - live_artifact_delete
