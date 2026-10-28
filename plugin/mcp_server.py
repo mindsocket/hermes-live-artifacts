@@ -39,7 +39,7 @@ INSTRUCTIONS = (
     f"Before writing page html, read the `{RESOURCE_PREFIX}capabilities` MCP resource (the page-side db API) and, for "
     f"layout and theming, the `{RESOURCE_PREFIX}design` MCP resource. Nothing is pushed when the user submits: ask them "
     "to tell you, then call live_artifact_db_read. To change or reuse an existing page, live_artifact_read writes its "
-    "html to a file in work_dir; edit that and pass its name as html_file."
+    "html to a file in work_dir; edit that and pass its name as html_file. work_dir: {work_dir}"
 )
 
 
@@ -154,7 +154,7 @@ async def serve(sdk=None) -> None:
 
     server = Server(
         "live-artifacts",
-        instructions=INSTRUCTIONS,
+        instructions=INSTRUCTIONS.format(work_dir=tools.work_dir()),
         on_list_tools=on_list_tools,
         on_call_tool=on_call_tool,
         on_list_resources=on_list_resources,

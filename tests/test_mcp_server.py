@@ -128,6 +128,8 @@ def test_stdio_round_trip(tmp_path):
     assert len(by_id[2]["result"]["tools"]) == len(tools.TOOLS)
     assert by_id[3]["result"]["isError"] is True
     assert "live-artifacts://skills/design" in by_id[1]["result"]["instructions"]
+    assert "{work_dir}" not in by_id[1]["result"]["instructions"]
+    assert str(tmp_path) in by_id[1]["result"]["instructions"]
     assert {r["uri"] for r in by_id[4]["result"]["resources"]} == {
         "live-artifacts://skills/capabilities",
         "live-artifacts://skills/design",

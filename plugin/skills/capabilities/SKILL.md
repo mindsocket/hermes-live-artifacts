@@ -131,7 +131,9 @@ the page stays editable unless you stop it.
 - `live_artifact_create(title, html | html_file, capabilities?, pinned?, seed?, wake?)`. Share the link with the user. In Hermes Desktop, also emit `::live-artifact{id="<id>"}` as its
   own paragraph. Where the plugin's desktop half is
   absent it stays a readable line of text, so keep the link too.
-- Every `id` also takes the artifact's link. 
+- Every `id` also takes the artifact's link.
+- `work_dir` is the `live-artifacts` folder in your scratch directory. Write a page there and pass its file name as
+  `html_file` instead of `html`.
 - `live_artifact_read(id)` returns the page: status, link, capabilities, and `html_file`, a fresh copy of its HTML in
   `work_dir`, whose absolute path the result also gives. Edit it there. Use this tool over a fetch/browser tool to avoid token and frame handling issues.
 - `live_artifact_db_read(id)` returns the data: every document the page saved, keyed by path.
