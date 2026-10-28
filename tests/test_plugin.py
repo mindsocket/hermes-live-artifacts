@@ -474,6 +474,7 @@ def test_read_is_the_page_and_db_read_is_the_data(tools_store):
     assert "docs" not in page and "token" not in page and "html" not in page
     assert page["capabilities"] == {"db": {}, "user": {}} and page["link"] == made["link"]
     assert (t.work_dir() / page["html_file"]).read_text() == "<p>x</p>" and page["html_chars"] == 8
+    assert page["work_dir"] == str(t.work_dir())
     data = json.loads(t.live_artifact_db_read({"id": made["id"]}))
     assert data["docs"] == {"items/a": {"n": 1}} and "html_file" not in data
 

@@ -133,7 +133,7 @@ the page stays editable unless you stop it.
   absent it stays a readable line of text, so keep the link too.
 - Every `id` also takes the artifact's link. 
 - `live_artifact_read(id)` returns the page: status, link, capabilities, and `html_file`, a fresh copy of its HTML in
-  `work_dir` (the read tool's description gives the path). Use this tool over a fetch/browser tool to avoid token and frame handling issues.
+  `work_dir`, whose absolute path the result also gives. Edit it there. Use this tool over a fetch/browser tool to avoid token and frame handling issues.
 - `live_artifact_db_read(id)` returns the data: every document the page saved, keyed by path.
 - `live_artifact_update(id, html | html_file)` replaces the whole page in place. To change a page that is not in your
   context, or model a new one on it, edit the `html_file` from a read and pass it to update or create. `html_file` is

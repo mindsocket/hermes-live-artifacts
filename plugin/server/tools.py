@@ -216,6 +216,7 @@ def live_artifact_read(args: dict, **_kw) -> str:
         link=link(a),
         capabilities=a["capabilities"],
         html_file=name,
+        work_dir=str(work_dir()),
         html_chars=len(a["html"]),
     )
 
@@ -332,9 +333,9 @@ TOOLS = [
     (
         _schema(
             "live_artifact_read",
-            "Read an artifact's page: status, link, capabilities, and html_file, a fresh copy of its HTML in "
-            "work_dir to edit and pass back to update or create. Use this, not a fetch, for a link the user gives "
-            "you. For what the user entered, use live_artifact_db_read. work_dir: {work_dir}",
+            "Read an artifact's page by id or link. Returns status, link, capabilities, and html_file, a fresh copy "
+            "of its HTML in work_dir to edit and pass back to update or create. Use this, not a fetch, for a link the "
+            "user gives you. For what the user entered, use live_artifact_db_read. work_dir: {work_dir}",
             {"id": _ID},
             ["id"],
         ),
@@ -369,7 +370,8 @@ TOOLS = [
     (
         _schema(
             "live_artifact_db_read",
-            "Read an artifact's status and every db document (what the user entered), keyed by path.",
+            "Read what the user entered in an artifact, by id or link. Returns its status and every db document, keyed by "
+            "path.",
             {"id": _ID},
             ["id"],
         ),
