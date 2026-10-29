@@ -19,6 +19,15 @@ indistinguishable by design. Branch on `null`, render without it, and light feat
 resolves. `window.claude` carries only `use` and `notify`: never read `window.claude.db` or similar. The resolved
 namespace is frozen: call its functions, never assign to it.
 
+## Agent rules
+
+- **Hermes:** end a review form with a Submit button that saves with `notify: true`. The notice arrives in your chat,
+  so share the link and end your turn.
+- **Claude Code (MCP):** nothing is pushed, so build no Submit or Send button. Share the link, ask the user to tell
+  you when they are done, then call `live_artifact_db_read`.
+- **Both:** keep state in `db`, not in the page: load it on open and save as the user goes, with no Save button. Never
+  hardcode answers or data into the html. Write drafts to `work_dir` and pass the file name as `html_file`.
+
 ## What is available
 
     db            real   Firestore-style document store, SQLite-backed, one per artifact

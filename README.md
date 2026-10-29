@@ -61,7 +61,8 @@ update artifacts in the same store as Hermes. The gateway listener must be runni
     claude mcp add live-artifacts -- hermes live-artifacts mcp
 
 Use `hermes -p <profile> live-artifacts mcp` for a non-default profile (the plugin must be installed in that profile). The
-skills are served as MCP resources (`live-artifacts://skills/capabilities`, `live-artifacts://skills/design`). Claude Code is not pushed a notice when a page is submitted: tell it you are
+skills are served as MCP resources (`live-artifacts://skills/capabilities`, `live-artifacts://skills/design`), and the first tool result of each session carries the capabilities skill's
+`## Agent rules` section, so the agent gets the short list of what to do without having to fetch a resource. Claude Code is not pushed a notice when a page is submitted: tell it you are
 done and it re-reads the artifact. Needs `mcp` 2.x, which the Hermes Python provides; the server never starts the HTTP listener,
 whatever `listen_process` is set to. `live_artifact_export` over MCP always writes to the exports directory (no custom `path`).
 

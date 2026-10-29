@@ -32,6 +32,23 @@ def test_create_description_is_mcp_specific_and_hermes_untouched():
     )
 
 
+def test_rules_notice_comes_from_the_skill_section():
+    notice = mcp_server.rules_notice()
+    assert "**Claude Code (MCP):**" in notice and "**Hermes:**" in notice and "html_file" in notice
+    assert "## " not in notice  # the section body only, not the next heading
+
+
+def test_once_hands_out_text_a_single_time():
+    once = mcp_server.Once("rules")
+    assert once.take() == "rules"
+    assert once.take() is None
+
+
+def test_create_result_says_what_to_do_when_nothing_is_pushed(tools_store):
+    text, _ = mcp_server.call(mcp_server._handlers(), "live_artifact_create", {"title": "t", "html": "<p>x</p>"})
+    assert "live_artifact_db_read" in json.loads(text)["next"]
+
+
 def test_export_has_no_path_over_mcp():
     assert "path" not in mcp_server._handlers()["live_artifact_export"][0]["parameters"]["properties"]
 
@@ -101,6 +118,7 @@ def test_stdio_round_trip(tmp_path):
         {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "live_artifact_read", "arguments": {}}},
         {"jsonrpc": "2.0", "id": 4, "method": "resources/list"},
         {"jsonrpc": "2.0", "id": 5, "method": "resources/read", "params": {"uri": "live-artifacts://skills/design"}},
+        {"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "live_artifact_read", "arguments": {}}},
     ]
     proc = subprocess.Popen(
         [sys.executable, "-c", code],
@@ -116,7 +134,7 @@ def test_stdio_round_trip(tmp_path):
         for m in msgs:
             proc.stdin.write(json.dumps(m) + "\n")
         proc.stdin.flush()
-        while not {3, 4, 5} <= by_id.keys():  # stdout is JSON-RPC only: every line must parse
+        while not {3, 4, 5, 6} <= by_id.keys():  # stdout is JSON-RPC only: every line must parse
             line = proc.stdout.readline()
             assert line, "server exited early"
             msg = json.loads(line)
@@ -127,6 +145,9 @@ def test_stdio_round_trip(tmp_path):
         proc.wait()
     assert len(by_id[2]["result"]["tools"]) == len(tools.TOOLS)
     assert by_id[3]["result"]["isError"] is True
+    first, second = by_id[3]["result"]["content"], by_id[6]["result"]["content"]
+    assert len(first) == 2 and "Agent rules" not in first[1]["text"] and "Claude Code (MCP)" in first[1]["text"]
+    assert len(second) == 1  # the rules are shown once per process
     assert "live-artifacts://skills/design" in by_id[1]["result"]["instructions"]
     assert "{work_dir}" not in by_id[1]["result"]["instructions"]
     assert str(tmp_path) in by_id[1]["result"]["instructions"]

@@ -29,18 +29,44 @@ RESOURCE_PREFIX = "live-artifacts://skills/"
 # Hermes agents load skills as `live-artifacts:<name>`; MCP clients read them as resources instead.
 _SKILL_SENTENCE = re.compile(r"First load the `live-artifacts:capabilities` skill [^.]*?\. ")
 _SKILL_POINTER = (
-    f"First read the `{RESOURCE_PREFIX}capabilities` MCP resource (page-side db, notify, what happens on submit) and "
-    f"the `{RESOURCE_PREFIX}design` MCP resource (layout, theming). "
+    f"Page API: the `{RESOURCE_PREFIX}capabilities` MCP resource; layout and theming: the `{RESOURCE_PREFIX}design` "
+    "MCP resource. "
 )
 
 
 INSTRUCTIONS = (
     "Tools to create and edit interactive HTML pages (forms, review lists, dashboards) that the user opens by link. "
-    f"Before writing page html, read the `{RESOURCE_PREFIX}capabilities` MCP resource (the page-side db API) and, for "
-    f"layout and theming, the `{RESOURCE_PREFIX}design` MCP resource. Nothing is pushed when the user submits: ask them "
-    "to tell you, then call live_artifact_db_read. To change or reuse an existing page, live_artifact_read writes its "
-    "html to a file in work_dir; edit that and pass its name as html_file. work_dir: {work_dir}"
+    f"Page API reference: the `{RESOURCE_PREFIX}capabilities` MCP resource; layout and theming: the "
+    f"`{RESOURCE_PREFIX}design` MCP resource. The first tool result carries rules to follow. Nothing is pushed when "
+    "the user submits: ask them to tell you, then call live_artifact_db_read. To change or reuse an existing page, "
+    "live_artifact_read writes its html to a file in work_dir; edit that and pass its name as html_file. "
+    "work_dir: {work_dir}"
 )
+
+_RULES_SECTION = re.compile(r"^## Agent rules\n(.*?)(?=^## )", re.DOTALL | re.MULTILINE)
+_RULES_PREAMBLE = (
+    "[live-artifacts] Rules for this session, shown once. If a page you wrote or are about to write breaks one, fix it "
+    "with live_artifact_update.\n\n"
+)
+
+
+def rules_notice() -> str:
+    """The `## Agent rules` section of the capabilities skill, framed as a one-off notice."""
+    m = _RULES_SECTION.search((SKILLS_DIR / "capabilities" / "SKILL.md").read_text(encoding="utf-8"))
+    if not m:
+        raise RuntimeError("capabilities skill has no '## Agent rules' section")
+    return _RULES_PREAMBLE + m.group(1).strip()
+
+
+class Once:
+    """Hands out `text` on the first take() and None afterwards. One per server process, which is one MCP session."""
+
+    def __init__(self, text: str):
+        self._text: str | None = text
+
+    def take(self) -> str | None:
+        text, self._text = self._text, None
+        return text
 
 
 def _skill_names() -> list[str]:
@@ -120,6 +146,7 @@ def _load_sdk():
 async def serve(sdk=None) -> None:
     types, Server, stdio_server = sdk or _load_sdk()
     handlers = _handlers()
+    rules = Once(rules_notice())  # also fails startup loudly if the skill loses its section
 
     async def on_list_tools(ctx, params) -> types.ListToolsResult:
         return types.ListToolsResult(
@@ -150,7 +177,11 @@ async def serve(sdk=None) -> None:
 
     async def on_call_tool(ctx, params: types.CallToolRequestParams) -> types.CallToolResult:
         text, is_error = await asyncio.to_thread(call, handlers, params.name, params.arguments)
-        return types.CallToolResult(content=[types.TextContent(text=text)], is_error=is_error)
+        content = [types.TextContent(text=text)]
+        notice = rules.take()
+        if notice:  # a separate block, so the JSON result still parses on its own
+            content.append(types.TextContent(text=notice))
+        return types.CallToolResult(content=content, is_error=is_error)
 
     server = Server(
         "live-artifacts",

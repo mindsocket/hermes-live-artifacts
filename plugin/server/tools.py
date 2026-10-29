@@ -174,7 +174,10 @@ def live_artifact_create(args: dict, **_kw) -> str:
         )
     except (ValueError, DbError) as e:
         return _err(str(e))
-    return _ok(**_summary(a), link=link(a))
+    summary = _summary(a)
+    if not summary["push_on_notify"]:
+        summary["next"] = "No push: ask the user to tell you when they are done, then call live_artifact_db_read."
+    return _ok(**summary, link=link(a))
 
 
 def live_artifact_update(args: dict, **_kw) -> str:
