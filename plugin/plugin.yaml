@@ -3,6 +3,9 @@ version: "0.1.0"
 requires_hermes: ">=0.21.5"
 description: Hermes Agent plugin to create and use interactive pages, designs and dashboards in your sessions.
 kind: standalone
+python_dependencies:
+  - "aiohttp>=3.9,<4"
+  - "rich>=13.0.0,<15"
 platforms:
   - macos
   - linux

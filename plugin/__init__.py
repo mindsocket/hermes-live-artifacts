@@ -124,7 +124,9 @@ def resolve_host(host: str) -> str:
         return host
     exe = shutil.which("tailscale") or "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
     try:
-        r = subprocess.run([exe, "ip", "-4"], capture_output=True, text=True, timeout=5)
+        # Minimal env: the Hermes process holds provider API keys that tailscale has no business seeing.
+        env = {k: os.environ[k] for k in ("PATH", "HOME", "LANG") if k in os.environ}
+        r = subprocess.run([exe, "ip", "-4"], capture_output=True, text=True, timeout=5, env=env)
     except (OSError, subprocess.SubprocessError) as e:
         raise OSError(f"tailscale ip failed: {e}") from e
     ips = r.stdout.split() if r.returncode == 0 else []

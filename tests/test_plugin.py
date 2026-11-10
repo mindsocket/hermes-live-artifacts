@@ -82,6 +82,20 @@ def test_resolve_host_passthrough_and_tailscale(monkeypatch):
         plug.resolve_host("tailscale")
 
 
+def test_resolve_host_gives_tailscale_a_minimal_env(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "secret")
+    monkeypatch.setenv("PATH", "/usr/bin")
+    seen = {}
+
+    def run(*a, **k):
+        seen.update(k)
+        return types.SimpleNamespace(returncode=0, stdout="100.1.2.3\n")
+
+    monkeypatch.setattr(plug.subprocess, "run", run)
+    plug.resolve_host("tailscale")
+    assert "OPENROUTER_API_KEY" not in seen["env"] and seen["env"]["PATH"] == "/usr/bin"
+
+
 # ---------------------------------------------------------------- notify: event + notice to the creating session
 def make(store, **kw):
     a = store.create_artifact("Trip review", "<p>x</p>", {"db": {}}, **kw)

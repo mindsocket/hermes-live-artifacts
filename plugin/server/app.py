@@ -159,13 +159,14 @@ def frame_ancestors_from(base_url: str) -> str:
 
 def render_shell(a: dict, ancestors: str) -> str:
     aid = a["id"]
+    title = html.escape(a["title"], quote=True)
     return (
         "<!doctype html><html><head><meta charset=utf8>"
         '<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">'
-        f"<title>{a['title']}</title>"
+        f"<title>{title}</title>"
         "<style>html,body{margin:0;height:100%}iframe{display:block;width:100%;height:100%;border:0}"
         "</style>"
-        f'</head><body><iframe src="/a/{aid}/frame" title="{a["title"]}"'
+        f'</head><body><iframe src="/a/{aid}/frame" title="{title}"'
         f' sandbox="{ARTIFACT_SANDBOX.split(" ", 1)[1]}"></iframe>'
         f"</body></html><!-- {aid} {ancestors} -->"
     )

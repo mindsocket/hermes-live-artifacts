@@ -22,6 +22,16 @@ async def with_client(store, fn, on_notify=None, mcp_call=None, link_secret=True
         return await fn(c)
 
 
+def test_shell_escapes_the_title(store):
+    evil = store.create_artifact('x"><script>alert(1)</script>', "<p>x</p>", {"db": {}})
+
+    async def go(c):
+        shell = await (await c.get(f"/a/{evil['id']}?k={evil['token']}")).text()
+        assert "<script>" not in shell and 'title="x&quot;&gt;&lt;script&gt;' in shell
+
+    run(with_client(store, go))
+
+
 def test_page_needs_the_token_and_embeds_it(store, art):
     async def go(c):
         assert (await c.get(f"/a/{art['id']}")).status == 404
