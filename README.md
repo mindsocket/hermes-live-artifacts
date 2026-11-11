@@ -138,17 +138,15 @@ There is no sign-in. Access is by possession of the link, so treat the listener 
 
 ## Feature comparison
 
-| Feature | `live-artifacts` (this plugin) | Claude Artifacts (Anthropic) | `dmmeteo/hermes-artifacts` |
-| :--- | :--- | :--- | :--- |
-| **Primary focus** | **Interactive 2-way apps**: forms, review lists, dashboards | **In-chat interactive widgets**: React apps, code snippets, visual docs | **Static document library**: browse and share finished deliverables |
-| **Interaction model** | Bidirectional: user edits data, pushes `notify` back to chat session | Conversational: viewed/edited in chat; no external session pushback | Read-only: static viewing and downloading; no agent pushback |
-| **Client persistence** | SQLite-backed document store via `window.claude.use('db')` with realtime SSE | Hosted document store via `window.claude.use('db')` | None (static content only; no client-side database) |
-| **Runtime compatibility** | Partial Claude contract 0.2.75 (`db`, `downloads`, `mcp`, constant single `user`) | Native Claude runtime (multi-user/mock users, comments, assets, rooms) | None (no `window.claude` runtime; raw file rendering) |
-| **Push to chat session** | Yes (`claude.notify()` / `{notify: true}` sends `[artifact notified]`) | No | No |
-| **Supported formats** | Interactive HTML applications (embedded or CDN assets) | React, HTML, SVG, Markdown, code, Mermaid | Multi-format: HTML, Markdown, SVG, PNG, WebP |
-| **Hosting architecture** | Embedded aiohttp listener inside Hermes gateway process (zero-setup) | Hosted cloud service on claude.ai | Decoupled standalone FastAPI service (runs outside Hermes gateway) |
-| **Sharing & access** | Private network (Tailscale/localhost); random ID + optional link secret (`?k=...`) | Public link sharing (claude.site) or workspace permissions | Expiring 128-bit bearer tokens, SHA-256 hashed at rest, revocable guest links |
-| **Management UI** | Hermes Dashboard tab ("Live artifacts"), Hermes Desktop page, CLI commands, agent tools | Claude chat interface / artifact drawer | Standalone web console (`/console/`), Hermes Dashboard tab, CLI |
+| Feature | `live-artifacts` (this plugin) | Claude Artifacts (Anthropic) | `super-artifacts` | `dmmeteo/hermes-artifacts` |
+| :--- | :--- | :--- | :--- | :--- |
+| **Primary focus** | **Interactive 2-way apps**: forms, review lists, dashboards | **In-chat interactive widgets**: React apps, code snippets, visual docs | **Publish-and-collect**: pages and forms as hosted URLs, submissions read back | **Static document library**: browse and share finished deliverables |
+| **Interaction model** | Bidirectional: user edits data, pushes `notify` back to chat session | Conversational: viewed/edited in chat | Submissions collected on hosted pages | Read-only: static viewing and downloading |
+| **Push to chat session** | Yes: submissions wake the originating session | No | No | No |
+| **Where your data lives** | Your machine | Anthropic's cloud | Super Artifacts' cloud | Your machine |
+| **Hosting** | Serves from your machine (zero-setup) | Hosted cloud service | Fully cloud-hosted | Standalone service you run yourself |
+| **Sharing & access** | Private network; per-artifact link with optional secret | Public link sharing or workspace permissions | Private by default; account-based sharing | Expiring, revocable guest links |
+| **Management UI** | Dashboard tab, Desktop page, CLI, agent tools | Chat interface / artifact drawer | Web app; agent tools | Web console, Dashboard tab, CLI |
 
 ## More
 
